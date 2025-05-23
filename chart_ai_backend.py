@@ -1,15 +1,13 @@
-# chart_ai_backend.py - Nexus AI (Cloud OCR with fallback)
-from fastapi import FastAPI, File, UploadFile, HTTPException
+# chart_ai_backend.py - FastAPI backend for Nexus AI (real price detection)
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from io import BytesIO
 from PIL import Image
-import requests
+import pytesseract
 import numpy as np
 import cv2
-import random
-import base64
 
 app = FastAPI()
 
@@ -33,29 +31,13 @@ class AnalysisResult(BaseModel):
 
 def extract_prices_from_image(pil_image: Image.Image) -> list[float]:
     img = np.array(pil_image)
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    h, w = img.shape
-    price_axis = img[:, int(w * 0.88):]
-    retval, buffer = cv2.imencode(".png", price_axis)
-    b64_image = base64.b64encode(buffer).decode()
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    h, w = gray.shape
+    price_axis = gray[:, int(w * 0.88):]  # Crop right side y-axis
 
-    api_url = "https://api.ocr.space/parse/image"
-    response = requests.post(
-        api_url,
-        data={
-            "base64Image": "data:image/png;base64," + b64_image,
-            "isOverlayRequired": False,
-            "OCREngine": 2,
-            "scale": True,
-        },
-        headers={"apikey": "helloworld"}
-    )
+    config = '--psm 6 -c tessedit_char_whitelist=0123456789.,'
+    raw_text = pytesseract.image_to_string(price_axis, config=config)
 
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="OCR API failed")
-
-    data = response.json()
-    raw_text = data.get("ParsedResults", [{}])[0].get("ParsedText", "")
     prices = []
     for line in raw_text.splitlines():
         try:
@@ -70,47 +52,31 @@ def extract_prices_from_image(pil_image: Image.Image) -> list[float]:
 @app.post("/analyze", response_model=AnalysisResult)
 async def analyze_chart(file: UploadFile = File(...)):
     contents = await file.read()
-    try:
-        image = Image.open(BytesIO(contents)).convert("RGB")
-    except:
-        raise HTTPException(status_code=400, detail="Invalid image")
+    image = Image.open(BytesIO(contents)).convert("RGB")
+    prices = extract_prices_from_image(image)
 
-    try:
-        prices = extract_prices_from_image(image)
-        print("Extracted prices:", prices)
-        note = None
-    except Exception as e:
-        print("OCR failed:", str(e))
-        prices = []
-        note = "OCR failed, using fallback values"
+    if len(prices) < 3:
+        return AnalysisResult(
+            signal="N/A",
+            bias="Unknown",
+            pattern="N/A",
+            entry=0,
+            stopLoss=0,
+            takeProfit=0,
+            confidence=0,
+            note="Unable to extract enough price levels from image."
+        )
 
-    patterns = ["Fakeout + Bullish Engulfing", "Double Bottom", "Order Block Retest", "Liquidity Sweep + Reversal"]
-    signals = ["BUY", "SELL"]
-    biases = ["Bullish", "Bearish"]
-
-    signal = random.choice(signals)
-    bias = random.choice(biases)
-    pattern = random.choice(patterns)
-    confidence = random.randint(85, 99)
-
-    if len(prices) >= 2:
-        high = prices[0]
-        low = prices[-1]
-        entry = round((high + low) / 2, 2)
-        stopLoss = round(entry - (high - low) * 0.25, 2)
-        takeProfit = round(entry + (high - low) * 0.5, 2)
-    else:
-        entry = 2315.25
-        stopLoss = 2310.10
-        takeProfit = 2330.00
+    highest = max(prices)
+    lowest = min(prices)
+    mid = round((highest + lowest) / 2, 2)
 
     return AnalysisResult(
-        signal=signal,
-        bias=bias,
-        pattern=pattern,
-        entry=entry,
-        stopLoss=stopLoss,
-        takeProfit=takeProfit,
-        confidence=confidence,
-        note=note
+        signal="BUY" if prices[0] > mid else "SELL",
+        bias="Bullish" if prices[0] > mid else "Bearish",
+        pattern="Liquidity Sweep + Reversal",
+        entry=mid,
+        stopLoss=lowest,
+        takeProfit=highest,
+        confidence=95
     )
