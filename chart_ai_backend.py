@@ -1,4 +1,4 @@
-# chart_ai_backend.py - Nexus AI (Cloud OCR version)
+# chart_ai_backend.py - Nexus AI (Cloud OCR with fallback)
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,6 +29,7 @@ class AnalysisResult(BaseModel):
     stopLoss: float
     takeProfit: float
     confidence: Optional[int] = 90
+    note: Optional[str] = None
 
 def extract_prices_from_image(pil_image: Image.Image) -> list[float]:
     img = np.array(pil_image)
@@ -38,7 +39,6 @@ def extract_prices_from_image(pil_image: Image.Image) -> list[float]:
     retval, buffer = cv2.imencode(".png", price_axis)
     b64_image = base64.b64encode(buffer).decode()
 
-    # Send to OCR.space API
     api_url = "https://api.ocr.space/parse/image"
     response = requests.post(
         api_url,
@@ -48,7 +48,7 @@ def extract_prices_from_image(pil_image: Image.Image) -> list[float]:
             "OCREngine": 2,
             "scale": True,
         },
-        headers={"apikey": "helloworld"}  # Use a free dev key for now
+        headers={"apikey": "helloworld"}
     )
 
     if response.status_code != 200:
@@ -72,15 +72,22 @@ async def analyze_chart(file: UploadFile = File(...)):
     contents = await file.read()
     try:
         image = Image.open(BytesIO(contents)).convert("RGB")
+    except:
+        raise HTTPException(status_code=400, detail="Invalid image")
+
+    try:
         prices = extract_prices_from_image(image)
         print("Extracted prices:", prices)
+        note = None
     except Exception as e:
-        print("Error during OCR:", str(e))
-        raise HTTPException(status_code=500, detail="OCR failed")
+        print("OCR failed:", str(e))
+        prices = []
+        note = "OCR failed, using fallback values"
 
     patterns = ["Fakeout + Bullish Engulfing", "Double Bottom", "Order Block Retest", "Liquidity Sweep + Reversal"]
     signals = ["BUY", "SELL"]
     biases = ["Bullish", "Bearish"]
+
     signal = random.choice(signals)
     bias = random.choice(biases)
     pattern = random.choice(patterns)
@@ -104,5 +111,6 @@ async def analyze_chart(file: UploadFile = File(...)):
         entry=entry,
         stopLoss=stopLoss,
         takeProfit=takeProfit,
-        confidence=confidence
+        confidence=confidence,
+        note=note
     )
