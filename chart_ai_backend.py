@@ -1,9 +1,11 @@
+# chart_ai_backend.py - FastAPI backend for Nexus AI (dynamic version)
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from io import BytesIO
 from PIL import Image
+import random
 
 app = FastAPI()
 
@@ -29,12 +31,25 @@ async def analyze_chart(file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(BytesIO(contents)).convert("RGB")
 
+    # Dynamic signal simulation
+    patterns = ["Fakeout + Bullish Engulfing", "Double Bottom", "Order Block Retest", "Liquidity Sweep + Reversal"]
+    signals = ["BUY", "SELL"]
+    biases = ["Bullish", "Bearish"]
+
+    signal = random.choice(signals)
+    bias = random.choice(biases)
+    pattern = random.choice(patterns)
+    entry = round(random.uniform(2300, 2330), 2)
+    stopLoss = round(entry - random.uniform(5, 10), 2)
+    takeProfit = round(entry + random.uniform(10, 20), 2)
+    confidence = random.randint(85, 99)
+
     return AnalysisResult(
-        signal="BUY",
-        bias="Bullish",
-        pattern="Fakeout + Bullish Engulfing",
-        entry=2315.25,
-        stopLoss=2310.10,
-        takeProfit=2330.00,
-        confidence=92
+        signal=signal,
+        bias=bias,
+        pattern=pattern,
+        entry=entry,
+        stopLoss=stopLoss,
+        takeProfit=takeProfit,
+        confidence=confidence
     )
