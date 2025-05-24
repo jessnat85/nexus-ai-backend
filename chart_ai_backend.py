@@ -43,7 +43,7 @@ async def analyze_chart(file: UploadFile = File(...)):
     image.save(buffered, format="PNG")
     img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    strategies = ["SMC", "Breakout"]
+    strategies = ["SMC", "Breakout", "Fibonacci"]
     results = []
 
     for strategy in strategies:
@@ -51,6 +51,7 @@ async def analyze_chart(file: UploadFile = File(...)):
             prompt = generate_prompt(strategy)
             response = openai.chat.completions.create(
                 model="gpt-4o",
+                temperature=0,
                 messages=[
                     {
                         "role": "user",
@@ -85,13 +86,24 @@ async def analyze_chart(file: UploadFile = File(...)):
 def generate_prompt(strategy: str) -> str:
     if strategy == "SMC":
         return (
-            "You are an SMC trading expert. Analyze this chart for a Smart Money Concept setup."
-            " Return only a JSON like this: {\"strategy\":\"SMC\", \"signal\":\"BUY\", \"bias\":\"Bullish\", \"pattern\":\"CHoCH + OB Retest\", \"entry\": 4321.50, \"stopLoss\": 4308.00, \"takeProfit\": 4375.00, \"confidence\": 88, \"commentary\": \"CHoCH occurred after a sweep, followed by OB retest.\" }"
+            "You are an expert in Smart Money Concept trading. Analyze this chart for a valid SMC setup."
+            " Focus on CHoCH, BOS, and order blocks. Ignore overlay text like 'BUY' or 'SELL'."
+            " Only return a JSON with: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
+            " Format: {\"strategy\":\"SMC\", ...}"
         )
     elif strategy == "Breakout":
         return (
-            "You are a trading expert. Analyze this chart for a breakout setup."
-            " Return only a JSON like this: {\"strategy\":\"Breakout\", \"signal\":\"SELL\", \"bias\":\"Bearish\", \"pattern\":\"Range Break + Retest\", \"entry\": 4025.00, \"stopLoss\": 4040.00, \"takeProfit\": 3980.00, \"confidence\": 82, \"commentary\": \"Price broke range low and retested prior support as resistance.\" }"
+            "You are a trading expert specialized in breakout strategies. Analyze this chart for consolidation or trendline breakouts."
+            " Confirm breakout with momentum and optional retest. Ignore chart overlay text."
+            " Return only JSON: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
+            " Format: {\"strategy\":\"Breakout\", ...}"
+        )
+    elif strategy == "Fibonacci":
+        return (
+            "You are a professional trader using Fibonacci retracements. Analyze this chart to detect price pulling back to levels like 0.618 or 0.786."
+            " Identify if there's a bounce or reversal from those levels, ideally with confluence. Ignore visible BUY/SELL text."
+            " Return only JSON: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
+            " Format: {\"strategy\":\"Fibonacci\", ...}"
         )
     else:
         return ""
