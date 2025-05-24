@@ -1,11 +1,13 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
-from io import BytesIO
+from typing import List
 from PIL import Image
 import pytesseract
+import numpy as np
+import cv2
 import re
+import io
 import random
 
 app = FastAPI()
@@ -19,53 +21,67 @@ app.add_middleware(
 )
 
 class AnalysisResult(BaseModel):
-    strategy: Optional[str]
-    signal: Optional[str]
-    bias: Optional[str]
-    pattern: Optional[str]
-    entry: Optional[float]
-    stopLoss: Optional[float]
-    takeProfit: Optional[float]
-    confidence: Optional[float]
+    strategy: str
+    signal: str
+    bias: str
+    pattern: str
+    entry: float
+    stopLoss: float
+    takeProfit: float
+    confidence: float
 
-def extract_prices_from_image(image: Image.Image):
-    price_axis = image.crop((image.width - 160, 0, image.width, image.height))
-    price_axis = price_axis.convert("L").point(lambda x: 0 if x < 150 else 255, mode='1')
 
-    raw_text = pytesseract.image_to_string(price_axis, config='--psm 6')
+def extract_prices_from_image(image: Image.Image) -> List[float]:
+    image = np.array(image)
+    height, width = image.shape[:2]
+    
+    # Crop to right edge where y-axis prices are
+    crop = image[0:height, int(width * 0.88):width]
+
+    # Preprocess
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+
+    # OCR config
+    raw_text = pytesseract.image_to_string(thresh, config='--psm 6 -c tessedit_char_whitelist=0123456789.')
     print("RAW OCR TEXT:", raw_text)
 
-    matches = re.findall(r'\d{1,3}(?:[,\d]{0,3})*\.\d{2}', raw_text.replace(' ', ''))
-    prices = [float(p.replace(',', '')) for p in matches if 0.01 < float(p.replace(',', '')) < 1000000]
+    matches = re.findall(r'\d{2,7}\.\d{2}', raw_text)
+    prices = sorted(set([float(m) for m in matches if float(m) > 10.0]))
     print("MATCHED PRICES:", prices)
 
-    if len(prices) >= 3:
-        prices = sorted(set(prices))
-        entry = prices[len(prices) // 2]
-        stopLoss = min(prices)
-        takeProfit = max(prices)
-    else:
-        # fallback if OCR fails
-        entry = round(random.uniform(1900, 110000), 2)
-        stopLoss = round(entry - random.uniform(50, 500), 2)
-        takeProfit = round(entry + random.uniform(100, 800), 2)
+    return prices
 
-    return entry, stopLoss, takeProfit
 
 @app.post("/analyze", response_model=AnalysisResult)
 async def analyze_chart(file: UploadFile = File(...)):
     contents = await file.read()
-    image = Image.open(BytesIO(contents)).convert("RGB")
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
 
-    entry, stopLoss, takeProfit = extract_prices_from_image(image)
+    prices = extract_prices_from_image(image)
+
+    # Simulate AI output for demo purpose
+    strategy = random.choice(["SMC", "Breakout", "Reversal", "Trend Following"])
+    signal = random.choice(["BUY", "SELL"])
+    bias = "Bullish" if signal == "BUY" else "Bearish"
+    pattern = random.choice(["Order Block", "Breakout", "Liquidity Sweep", "Engulfing", "FVG"])
+    confidence = round(random.uniform(60, 99), 2)
+
+    # Generate fake price levels from OCR data
+    if len(prices) >= 3:
+        entry = prices[len(prices) // 2]
+        stopLoss = prices[0]
+        takeProfit = prices[-1]
+    else:
+        entry = stopLoss = takeProfit = 0.0
 
     return AnalysisResult(
-        strategy="SMC",
-        signal="BUY",
-        bias="Bullish",
-        pattern="Liquidity Sweep + OB",
-        entry=entry,
-        stopLoss=stopLoss,
-        takeProfit=takeProfit,
-        confidence=round(random.uniform(85, 98), 1)
+        strategy=strategy,
+        signal=signal,
+        bias=bias,
+        pattern=pattern,
+        entry=round(entry, 2),
+        stopLoss=round(stopLoss, 2),
+        takeProfit=round(takeProfit, 2),
+        confidence=confidence
     )
