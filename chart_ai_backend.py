@@ -4,6 +4,7 @@ import openai
 import base64
 import json
 import re
+from collections import Counter
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -71,8 +72,8 @@ async def analyze_chart(file: UploadFile = File(...)):
             match = re.search(r'{.*}', raw, re.DOTALL)
             if match:
                 json_data = json.loads(match.group())
-                result = StrategyResult(**json_data)
-                results.append(result)
+                json_data["strategy"] = strategy
+                results.append(StrategyResult(**json_data))
             else:
                 raise ValueError("No valid JSON object found")
         except Exception as e:
@@ -80,9 +81,11 @@ async def analyze_chart(file: UploadFile = File(...)):
             continue
 
     super_trade = False
-    if len(results) >= 2:
-        first_signal = results[0].signal
-        if all(r.signal == first_signal for r in results):
+    if len(results) >= 3:
+        sig_bias_combo = [(r.signal, r.bias) for r in results if r.confidence >= 70]
+        counts = Counter(sig_bias_combo)
+        most_common = counts.most_common(1)
+        if most_common and most_common[0][1] >= 3:
             super_trade = True
 
     return FullAnalysis(results=results, superTrade=super_trade)
