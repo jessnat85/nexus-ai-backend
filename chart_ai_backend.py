@@ -99,6 +99,7 @@ def generate_prompt(strategy: str) -> str:
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
         "  \"confidence\": float (0 to 100),\n"
+        "  // Estimate this based on clarity, confluence, and strength of the pattern. Do NOT use vague terms like 'High'.\n"
         "  \"commentary\": \"Explain the rationale behind the trade setup.\"\n"
         "}\n\n"
         "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown. "
