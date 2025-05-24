@@ -84,26 +84,30 @@ async def analyze_chart(file: UploadFile = File(...)):
     return FullAnalysis(results=results, superTrade=super_trade)
 
 def generate_prompt(strategy: str) -> str:
+    float_instructions = (
+        " All numeric fields (entry, stopLoss, takeProfit, confidence) must be valid floats without quotes or commas."
+        " Confidence must be a float between 0 and 100."
+    )
     if strategy == "SMC":
         return (
             "You are an expert in Smart Money Concept trading. Analyze this chart for a valid SMC setup."
             " Focus on CHoCH, BOS, and order blocks. Ignore overlay text like 'BUY' or 'SELL'."
             " Only return a JSON with: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
-            " Format: {\"strategy\":\"SMC\", ...}"
+            + float_instructions
         )
     elif strategy == "Breakout":
         return (
             "You are a trading expert specialized in breakout strategies. Analyze this chart for consolidation or trendline breakouts."
             " Confirm breakout with momentum and optional retest. Ignore chart overlay text."
             " Return only JSON: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
-            " Format: {\"strategy\":\"Breakout\", ...}"
+            + float_instructions
         )
     elif strategy == "Fibonacci":
         return (
             "You are a professional trader using Fibonacci retracements. Analyze this chart to detect price pulling back to levels like 0.618 or 0.786."
             " Identify if there's a bounce or reversal from those levels, ideally with confluence. Ignore visible BUY/SELL text."
             " Return only JSON: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
-            " Format: {\"strategy\":\"Fibonacci\", ...}"
+            + float_instructions
         )
     else:
         return ""
