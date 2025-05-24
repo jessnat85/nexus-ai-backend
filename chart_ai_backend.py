@@ -45,13 +45,21 @@ async def analyze_chart(file: UploadFile = File(...)):
                         {
                             "type": "text",
                             "text": (
-                                "You are a financial trading expert AI. Analyze this trading chart image, "
-                                "and return the strategy, signal, bias, pattern, entry price, stop loss (SL), take profit (TP), "
-                                "and confidence percentage in JSON format.\n"
-                                "Format your reply ONLY as JSON like this:\n"
-                                "{\"strategy\": \"SMC\", \"signal\": \"BUY\", \"bias\": \"Bullish\", \"pattern\": \"Order Block\", "
-                                "\"entry\": 2315.55, \"stopLoss\": 2301.25, \"takeProfit\": 2348.95, \"confidence\": 92.5}\n"
-                                "Do NOT explain anything else."
+                                "You are an expert SMC (Smart Money Concepts) trading assistant. Analyze the chart and identify the following ONLY if visible:\n"
+                                "- CHoCH (Change of Character) or BOS (Break of Structure)\n"
+                                "- Supply or Demand Order Blocks (OB)\n"
+                                "- Fair Value Gaps (FVG)\n"
+                                "- Liquidity sweeps or stop hunts\n"
+                                "Then give your SMC-based trade idea with:\n"
+                                "- Market bias (Bullish or Bearish)\n"
+                                "- Entry price (where to enter)\n"
+                                "- Stop Loss (protective level)\n"
+                                "- Take Profit (logical target)\n"
+                                "- Pattern name (e.g., OB retest after CHoCH)\n"
+                                "- Strategy (must say \"SMC\")\n"
+                                "- Confidence from 0 to 100\n"
+                                "\nFormat your reply STRICTLY as JSON like this:\n"
+                                "{\"strategy\": \"SMC\", \"signal\": \"BUY\", \"bias\": \"Bullish\", \"pattern\": \"CHoCH + OB Retest\", \"entry\": 2315.55, \"stopLoss\": 2301.25, \"takeProfit\": 2348.95, \"confidence\": 91.2}"
                             )
                         },
                         {
@@ -75,4 +83,4 @@ async def analyze_chart(file: UploadFile = File(...)):
 
     except Exception as e:
         print("Error during GPT Vision analysis:", str(e))
-        return AnalysisResult(strategy="N/A", signal="", bias="", pattern="", entry=0, stopLoss=0, takeProfit=0, confidence=0)
+        return AnalysisResult(strategy="SMC", signal="", bias="", pattern="", entry=0, stopLoss=0, takeProfit=0, confidence=0)
