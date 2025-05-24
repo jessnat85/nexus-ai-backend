@@ -43,7 +43,10 @@ async def analyze_chart(file: UploadFile = File(...)):
     image.save(buffered, format="PNG")
     img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    strategies = ["SMC", "Breakout", "Fibonacci"]
+    strategies = [
+        "SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
+        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "OrderBlock"
+    ]
     results = []
 
     for strategy in strategies:
@@ -84,30 +87,28 @@ async def analyze_chart(file: UploadFile = File(...)):
     return FullAnalysis(results=results, superTrade=super_trade)
 
 def generate_prompt(strategy: str) -> str:
-    float_instructions = (
+    float_format = (
         " All numeric fields (entry, stopLoss, takeProfit, confidence) must be valid floats without quotes or commas."
         " Confidence must be a float between 0 and 100."
     )
     if strategy == "SMC":
-        return (
-            "You are an expert in Smart Money Concept trading. Analyze this chart for a valid SMC setup."
-            " Focus on CHoCH, BOS, and order blocks. Ignore overlay text like 'BUY' or 'SELL'."
-            " Only return a JSON with: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
-            + float_instructions
-        )
-    elif strategy == "Breakout":
-        return (
-            "You are a trading expert specialized in breakout strategies. Analyze this chart for consolidation or trendline breakouts."
-            " Confirm breakout with momentum and optional retest. Ignore chart overlay text."
-            " Return only JSON: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
-            + float_instructions
-        )
-    elif strategy == "Fibonacci":
-        return (
-            "You are a professional trader using Fibonacci retracements. Analyze this chart to detect price pulling back to levels like 0.618 or 0.786."
-            " Identify if there's a bounce or reversal from those levels, ideally with confluence. Ignore visible BUY/SELL text."
-            " Return only JSON: strategy, signal, bias, pattern, entry, stopLoss, takeProfit, confidence, commentary."
-            + float_instructions
-        )
-    else:
-        return ""
+        return "You are an expert in Smart Money Concept trading. Analyze this chart for CHoCH, BOS, and OB retests. Ignore overlays. Output JSON format." + float_format
+    if strategy == "Breakout":
+        return "You're a breakout strategy expert. Identify range breaks or trendline breaks and retests. Output only JSON." + float_format
+    if strategy == "Fibonacci":
+        return "You're a Fibonacci retracement expert. Detect reactions to 0.618/0.786 retracements. Output only JSON." + float_format
+    if strategy == "PriceAction":
+        return "You're a price action expert. Look for engulfing candles, pin bars at key levels, and structure shifts. Output JSON." + float_format
+    if strategy == "Reversal":
+        return "Analyze this chart for reversal setups: divergence, candle patterns, or exhaustion at levels. Output JSON only." + float_format
+    if strategy == "Trendline":
+        return "You're a trendline expert. Look for touches and breaks of major trendlines with retests. Output JSON only." + float_format
+    if strategy == "LiquiditySweep":
+        return "Detect fakeouts or liquidity grabs followed by reversals. Look for price wicks and reaction. Output JSON only." + float_format
+    if strategy == "SupportResistance":
+        return "Look for bounces or breaks from horizontal support/resistance levels. Ignore indicators. Output JSON only." + float_format
+    if strategy == "Scalping":
+        return "You're a scalper. Look for microstructure shifts and fast momentum entries. Output JSON only." + float_format
+    if strategy == "OrderBlock":
+        return "You specialize in order blocks. Identify OB formation and retests with confirmation. Output JSON only." + float_format
+    return ""
