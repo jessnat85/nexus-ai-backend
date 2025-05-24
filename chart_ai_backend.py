@@ -4,7 +4,6 @@ import openai
 import base64
 import json
 import re
-from collections import Counter
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -81,38 +80,48 @@ async def analyze_chart(file: UploadFile = File(...)):
             continue
 
     super_trade = False
-    if len(results) >= 3:
-        sig_bias_combo = [(r.signal, r.bias) for r in results if r.confidence >= 70]
-        counts = Counter(sig_bias_combo)
-        most_common = counts.most_common(1)
-        if most_common and most_common[0][1] >= 3:
+    if len(results) >= 2:
+        first_signal = results[0].signal
+        if all(r.signal == first_signal for r in results):
             super_trade = True
 
     return FullAnalysis(results=results, superTrade=super_trade)
 
 def generate_prompt(strategy: str) -> str:
-    float_format = (
-        " All numeric fields (entry, stopLoss, takeProfit, confidence) must be valid floats without quotes or commas."
-        " Confidence must be a float between 0 and 100."
+    schema = (
+        "Respond only with a JSON object using this exact schema:\n"
+        "{\n"
+        "  \"strategy\": \"{strategy_name}\",\n"
+        "  \"signal\": \"Buy or Sell\",\n"
+        "  \"bias\": \"Bullish or Bearish\",\n"
+        "  \"pattern\": \"Describe the key pattern you used\",\n"
+        "  \"entry\": float,\n"
+        "  \"stopLoss\": float,\n"
+        "  \"takeProfit\": float,\n"
+        "  \"confidence\": float (0 to 100),\n"
+        "  \"commentary\": \"Explain the rationale behind the trade setup.\"\n"
+        "}\n\n"
+        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown. "
+        "All numbers must be valid floats (no commas or quotes)."
     )
     if strategy == "SMC":
-        return "You are an expert in Smart Money Concept trading. Analyze this chart for CHoCH, BOS, and OB retests. Ignore overlays. Output JSON format." + float_format
+        return "You're a Smart Money Concept (SMC) expert. Analyze this chart for one high-probability SMC trade setup based on CHoCH, BOS, or OB retest. " + schema.replace("{strategy_name}", "SMC")
     if strategy == "Breakout":
-        return "You're a breakout strategy expert. Identify range breaks or trendline breaks and retests. Output only JSON." + float_format
+        return "You're a breakout strategy expert. Identify range breaks or trendline breaks and retests. " + schema.replace("{strategy_name}", "Breakout")
     if strategy == "Fibonacci":
-        return "You're a Fibonacci retracement expert. Detect reactions to 0.618/0.786 retracements. Output only JSON." + float_format
+        return "You're a Fibonacci retracement expert. Detect reactions to 0.618/0.786 retracements. " + schema.replace("{strategy_name}", "Fibonacci")
     if strategy == "PriceAction":
-        return "You're a price action expert. Look for engulfing candles, pin bars at key levels, and structure shifts. Output JSON." + float_format
+        return "You're a price action expert. Look for engulfing candles, pin bars at key levels, and structure shifts. " + schema.replace("{strategy_name}", "PriceAction")
     if strategy == "Reversal":
-        return "Analyze this chart for reversal setups: divergence, candle patterns, or exhaustion at levels. Output JSON only." + float_format
+        return "Analyze this chart for reversal setups: divergence, candle patterns, or exhaustion at levels. " + schema.replace("{strategy_name}", "Reversal")
     if strategy == "Trendline":
-        return "You're a trendline expert. Look for touches and breaks of major trendlines with retests. Output JSON only." + float_format
+        return "You're a trendline expert. Look for touches and breaks of major trendlines with retests. " + schema.replace("{strategy_name}", "Trendline")
     if strategy == "LiquiditySweep":
-        return "Detect fakeouts or liquidity grabs followed by reversals. Look for price wicks and reaction. Output JSON only." + float_format
+        return "Detect fakeouts or liquidity grabs followed by reversals. Look for price wicks and reaction. " + schema.replace("{strategy_name}", "LiquiditySweep")
     if strategy == "SupportResistance":
-        return "Look for bounces or breaks from horizontal support/resistance levels. Ignore indicators. Output JSON only." + float_format
+        return "Look for bounces or breaks from horizontal support/resistance levels. Ignore indicators. " + schema.replace("{strategy_name}", "SupportResistance")
     if strategy == "Scalping":
-        return "You're a scalper. Look for microstructure shifts and fast momentum entries. Output JSON only." + float_format
+        return "You're a scalper. Look for microstructure shifts and fast momentum entries. " + schema.replace("{strategy_name}", "Scalping")
     if strategy == "OrderBlock":
-        return "You specialize in order blocks. Identify OB formation and retests with confirmation. Output JSON only." + float_format
+        return "You specialize in order blocks. Identify OB formation and retests with confirmation. " + schema.replace("{strategy_name}", "OrderBlock")
     return ""
