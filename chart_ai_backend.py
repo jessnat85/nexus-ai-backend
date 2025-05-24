@@ -6,6 +6,7 @@ import re
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List, Optional
 import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -20,6 +21,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class Zone(BaseModel):
+    type: str
+    price: float
+    status: str
+
 class AnalysisResult(BaseModel):
     strategy: str
     signal: str
@@ -30,6 +36,9 @@ class AnalysisResult(BaseModel):
     takeProfit: float
     confidence: float
     commentary: str
+    structure: Optional[str] = None
+    riskReward: Optional[float] = None
+    zones: Optional[List[Zone]] = []
 
 @app.post("/analyze", response_model=AnalysisResult)
 async def analyze_chart(file: UploadFile = File(...)):
@@ -46,22 +55,19 @@ async def analyze_chart(file: UploadFile = File(...)):
                         {
                             "type": "text",
                             "text": (
-                                "You are an expert SMC (Smart Money Concepts) trading assistant. Analyze the chart and identify the following ONLY if visible:\n"
-                                "- CHoCH (Change of Character) or BOS (Break of Structure)\n"
-                                "- Supply or Demand Order Blocks (OB)\n"
-                                "- Fair Value Gaps (FVG)\n"
-                                "- Liquidity sweeps or stop hunts\n"
-                                "Then give your SMC-based trade idea with:\n"
-                                "- Market bias (Bullish or Bearish)\n"
-                                "- Entry price (where to enter)\n"
-                                "- Stop Loss (protective level)\n"
-                                "- Take Profit (logical target)\n"
-                                "- Pattern name (e.g., OB retest after CHoCH)\n"
-                                "- Strategy (must say \"SMC\")\n"
-                                "- Confidence from 0 to 100\n"
-                                "- Commentary: a short explanation of why this trade setup is valid.\n"
-                                "\nFormat your reply STRICTLY as JSON like this:\n"
-                                "{\"strategy\": \"SMC\", \"signal\": \"BUY\", \"bias\": \"Bullish\", \"pattern\": \"CHoCH + OB Retest\", \"entry\": 2315.55, \"stopLoss\": 2301.25, \"takeProfit\": 2348.95, \"confidence\": 91.2, \"commentary\": \"Price swept liquidity then broke structure and retested a demand OB.\"}"
+                                "You're a Smart Money Concepts (SMC) trading expert. Analyze this chart and return the following strictly as JSON:\n"
+                                "- strategy (always 'SMC')\n"
+                                "- signal: BUY or SELL\n"
+                                "- bias: Bullish or Bearish\n"
+                                "- pattern: e.g., 'CHoCH + OB Retest'\n"
+                                "- entry, stopLoss, takeProfit (float)\n"
+                                "- confidence: 0-100\n"
+                                "- commentary: explain the setup\n"
+                                "- structure: e.g., 'LL → CHoCH → HH'\n"
+                                "- riskReward: R:R estimate (float)\n"
+                                "- zones: array of detected order blocks with type (Supply/Demand), price (float), and status (fresh/mitigated)\n"
+                                "\nExample JSON format:\n"
+                                "{\n  \"strategy\": \"SMC\",\n  \"signal\": \"SELL\",\n  \"bias\": \"Bearish\",\n  \"pattern\": \"BOS + OB Retest\",\n  \"entry\": 2565.00,\n  \"stopLoss\": 2580.00,\n  \"takeProfit\": 2510.00,\n  \"confidence\": 88.5,\n  \"commentary\": \"Price broke structure and retested supply OB after sweep.\",\n  \"structure\": \"LL → CHoCH → LH\",\n  \"riskReward\": 2.3,\n  \"zones\": [\n    { \"type\": \"Supply\", \"price\": 2575.25, \"status\": \"fresh\" },\n    { \"type\": \"Demand\", \"price\": 2502.75, \"status\": \"mitigated\" }\n  ]\n}"
                             )
                         },
                         {
@@ -71,7 +77,7 @@ async def analyze_chart(file: UploadFile = File(...)):
                     ]
                 }
             ],
-            max_tokens=1200
+            max_tokens=1600
         )
 
         raw = response.choices[0].message.content
@@ -85,4 +91,17 @@ async def analyze_chart(file: UploadFile = File(...)):
 
     except Exception as e:
         print("Error during GPT Vision analysis:", str(e))
-        return AnalysisResult(strategy="SMC", signal="", bias="", pattern="", entry=0, stopLoss=0, takeProfit=0, confidence=0, commentary="")
+        return AnalysisResult(
+            strategy="SMC",
+            signal="",
+            bias="",
+            pattern="",
+            entry=0,
+            stopLoss=0,
+            takeProfit=0,
+            confidence=0,
+            commentary="",
+            structure="",
+            riskReward=0,
+            zones=[]
+        )
