@@ -29,6 +29,7 @@ class AnalysisResult(BaseModel):
     stopLoss: float
     takeProfit: float
     confidence: float
+    commentary: str
 
 @app.post("/analyze", response_model=AnalysisResult)
 async def analyze_chart(file: UploadFile = File(...)):
@@ -58,8 +59,9 @@ async def analyze_chart(file: UploadFile = File(...)):
                                 "- Pattern name (e.g., OB retest after CHoCH)\n"
                                 "- Strategy (must say \"SMC\")\n"
                                 "- Confidence from 0 to 100\n"
+                                "- Commentary: a short explanation of why this trade setup is valid.\n"
                                 "\nFormat your reply STRICTLY as JSON like this:\n"
-                                "{\"strategy\": \"SMC\", \"signal\": \"BUY\", \"bias\": \"Bullish\", \"pattern\": \"CHoCH + OB Retest\", \"entry\": 2315.55, \"stopLoss\": 2301.25, \"takeProfit\": 2348.95, \"confidence\": 91.2}"
+                                "{\"strategy\": \"SMC\", \"signal\": \"BUY\", \"bias\": \"Bullish\", \"pattern\": \"CHoCH + OB Retest\", \"entry\": 2315.55, \"stopLoss\": 2301.25, \"takeProfit\": 2348.95, \"confidence\": 91.2, \"commentary\": \"Price swept liquidity then broke structure and retested a demand OB.\"}"
                             )
                         },
                         {
@@ -69,7 +71,7 @@ async def analyze_chart(file: UploadFile = File(...)):
                     ]
                 }
             ],
-            max_tokens=1000
+            max_tokens=1200
         )
 
         raw = response.choices[0].message.content
@@ -83,4 +85,4 @@ async def analyze_chart(file: UploadFile = File(...)):
 
     except Exception as e:
         print("Error during GPT Vision analysis:", str(e))
-        return AnalysisResult(strategy="SMC", signal="", bias="", pattern="", entry=0, stopLoss=0, takeProfit=0, confidence=0)
+        return AnalysisResult(strategy="SMC", signal="", bias="", pattern="", entry=0, stopLoss=0, takeProfit=0, confidence=0, commentary="")
