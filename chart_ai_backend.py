@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
 from datetime import datetime
-from finnhub import get_recent_news, get_economic_calendar
+from news_events_utils import get_recent_news, scrape_forex_factory
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
