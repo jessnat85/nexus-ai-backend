@@ -6,3 +6,4 @@ opencv-python-headless
 python-multipart
 pytesseract
 openai
+requests
