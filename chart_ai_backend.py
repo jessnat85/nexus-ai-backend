@@ -30,12 +30,13 @@ class StrategyResult(BaseModel):
     stopLoss: float
     takeProfit: float
     confidence: float
-    tradeType: str
     commentary: str
+    tradeType: str
 
 class FullAnalysis(BaseModel):
     results: list[StrategyResult]
     superTrade: bool
+    topPick: StrategyResult | None
 
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(file: UploadFile = File(...)):
@@ -88,12 +89,31 @@ async def analyze_chart(file: UploadFile = File(...)):
             continue
 
     super_trade = False
-    if len(results) >= 2:
-        first_signal = results[0].signal
-        if all(r.signal == first_signal for r in results):
+    top_pick = None
+
+    if len(results) >= 3:
+        # Group by signal
+        buy_signals = [r for r in results if r.signal == "Buy"]
+        sell_signals = [r for r in results if r.signal == "Sell"]
+
+        def check_confluence(group):
+            if len(group) < 3:
+                return False
+            avg_conf = sum(r.confidence for r in group) / len(group)
+            same_bias = all(r.bias == group[0].bias for r in group)
+            rr_ok = all(((r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)) >= 1.5 for r in group)
+            return avg_conf >= 78 and same_bias and rr_ok
+
+        if check_confluence(buy_signals):
+            super_trade = True
+        elif check_confluence(sell_signals):
             super_trade = True
 
-    return FullAnalysis(results=results, superTrade=super_trade)
+    # Determine top pick by confidence
+    if results:
+        top_pick = max(results, key=lambda r: r.confidence)
+
+    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick)
 
 def generate_prompt(strategy: str) -> str:
     schema = (
@@ -108,11 +128,10 @@ def generate_prompt(strategy: str) -> str:
         "  \"takeProfit\": float,\n"
         "  \"confidence\": float (0 to 100),\n"
         "  // Estimate this based on clarity, confluence, and strength of the pattern. Do NOT use vague terms like 'High'.\n"
-        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
-        "  // Use expected trade duration and target size to decide.\n"
+        "  \"tradeType\": \"Scalp, Intraday, Swing\",\n"
         "  \"commentary\": \"Explain the rationale behind the trade setup.\"\n"
         "}\n\n"
-        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown.\n"
+        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown. "
         "All numbers must be valid floats (no commas or quotes)."
     )
 
@@ -122,7 +141,7 @@ def generate_prompt(strategy: str) -> str:
         "Fibonacci": "You're a Fibonacci retracement expert. Detect reactions to 0.618/0.786 retracements. ",
         "PriceAction": "You're a price action expert. Look for engulfing candles, pin bars at key levels, and structure shifts. ",
         "Reversal": "Analyze this chart for reversal setups: divergence, candle patterns, or exhaustion at levels. ",
-        "Trendline": "You're a trendline expert. Look for touches and breaks of major trendlines with retests. Use structure confirmation. ",
+        "Trendline": "You're a trendline expert. Look for touches and breaks of major trendlines with retests. ",
         "LiquiditySweep": "Detect fakeouts or liquidity grabs followed by reversals. Look for price wicks and reaction. ",
         "SupportResistance": "Look for bounces or breaks from horizontal support/resistance levels. Ignore indicators. ",
         "Scalping": "You're a scalper. Look for microstructure shifts and fast momentum entries. ",
