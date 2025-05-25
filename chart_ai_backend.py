@@ -55,9 +55,7 @@ def generate_news_context():
 
     return f"Economic Events (as of {date_today}):\n{econ_block}\n\nRecent News Headlines:\n{news_block}"
 
-    return f"Economic Events (as of {date_today}):\n{econ_block}\n\nRecent News Headlines:\n{news_block}"
-
-def generate_prompt(strategy: str, news_context: str) -> str:
+def generate_prompt(strategy: str, news_context: str, language: str = "en") -> str:
     schema = (
         "Respond only with a JSON object using this exact schema:\n"
         "{\n"
@@ -89,14 +87,21 @@ def generate_prompt(strategy: str, news_context: str) -> str:
     }
 
     intro = strategy_prompts.get(strategy, "")
-    return f"{news_context}\n\n{intro}\n" + schema.replace("{strategy_name}", strategy)
+    full_prompt = f"{news_context}\n\n{intro}\n" + schema.replace("{strategy_name}", strategy)
+
+    if language == "fr":
+        return f"Réponds en français.\n{full_prompt}"
+    elif language == "es":
+        return f"Responde en español.\n{full_prompt}"
+    return full_prompt
 
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
     file: UploadFile = File(...),
     portfolioSize: float = Form(10000),
     riskTolerance: str = Form("moderate"),
-    assetType: str = Form(None)
+    assetType: str = Form(None),
+    language: str = Form("en")  # Language input added here
 ):
     image = Image.open(io.BytesIO(await file.read()))
     buffered = io.BytesIO()
@@ -113,7 +118,7 @@ async def analyze_chart(
 
     for strategy in strategies:
         try:
-            prompt = generate_prompt(strategy, news_context)
+            prompt = generate_prompt(strategy, news_context, language)
             response = openai.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.4,
