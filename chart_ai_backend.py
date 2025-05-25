@@ -4,7 +4,7 @@ import openai
 import base64
 import json
 import re
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
@@ -32,6 +32,7 @@ class StrategyResult(BaseModel):
     confidence: float
     commentary: str
     tradeType: str
+    recommendedSize: str = "N/A"
 
 class FullAnalysis(BaseModel):
     results: list[StrategyResult]
@@ -39,7 +40,11 @@ class FullAnalysis(BaseModel):
     topPick: StrategyResult | None
 
 @app.post("/analyze", response_model=FullAnalysis)
-async def analyze_chart(file: UploadFile = File(...)):
+async def analyze_chart(
+    file: UploadFile = File(...),
+    portfolioSize: float = Form(10000),
+    riskTolerance: str = Form("moderate")
+):
     image = Image.open(io.BytesIO(await file.read()))
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
@@ -76,7 +81,18 @@ async def analyze_chart(file: UploadFile = File(...)):
                 try:
                     json_data = json.loads(match.group())
                     json_data["strategy"] = strategy
-                    results.append(StrategyResult(**json_data))
+                    result = StrategyResult(**json_data)
+
+                    # Risk per trade based on tolerance
+                    risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
+                    risk_amount = portfolioSize * risk_percent
+                    stop_distance = abs(result.entry - result.stopLoss)
+                    
+                    if stop_distance > 0:
+                        units = risk_amount / stop_distance
+                        result.recommendedSize = f"{units:.2f} units"
+
+                    results.append(result)
                 except Exception as json_err:
                     print(f"⚠️ Skipping {strategy} - JSON parse error: {json_err}")
                     continue
