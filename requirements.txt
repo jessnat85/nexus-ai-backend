@@ -7,3 +7,4 @@ python-multipart
 pytesseract
 openai
 requests
+beautifulsoup4>=4.12.0
