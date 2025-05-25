@@ -1,52 +1,54 @@
+# news_events_utils.py
 import os
 import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
+# Load API key from environment
 NEWS_API_KEY = os.getenv("NEWSDATA_API_KEY")
 NEWS_BASE_URL = "https://newsdata.io/api/1"
 
-
-def get_recent_news(symbol: str):
+def get_recent_news(query="US"):
+    """Fetch top 5 financial news articles using NewsData.io"""
     url = f"{NEWS_BASE_URL}/news"
     params = {
         "apikey": NEWS_API_KEY,
-        "q": symbol,
+        "q": query,
         "language": "en",
         "category": "business"
     }
     try:
         res = requests.get(url, params=params)
         res.raise_for_status()
-        articles = res.json().get("results", [])
-        return articles[:5]
+        data = res.json()
+        return data.get("results", [])[:5]
     except Exception as e:
         print(f"❌ NewsData.io fetch failed: {e}")
         return []
 
-
 def scrape_forex_factory():
+    """Scrape top 5 economic events from Forex Factory"""
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
         res = requests.get("https://www.forexfactory.com/calendar", headers=headers)
         res.raise_for_status()
         soup = BeautifulSoup(res.text, "html.parser")
 
         events = []
-        for row in soup.select("tr.calendar__row"):
-            time_el = row.select_one("td.calendar__time")
-            currency_el = row.select_one("td.calendar__currency")
-            impact_el = row.select_one("td.calendar__impact img")
-            event_el = row.select_one("td.calendar__event")
+        for row in soup.select("tr.calendar__row")[:10]:  # Max 10 to be safe
+            time = row.select_one("td.calendar__time")
+            currency = row.select_one("td.calendar__currency")
+            impact = row.select_one("td.calendar__impact img")
+            event = row.select_one("td.calendar__event")
 
-            if time_el and currency_el and event_el:
+            if time and currency and event:
                 events.append({
-                    "time": time_el.get_text(strip=True),
-                    "currency": currency_el.get_text(strip=True),
-                    "impact": impact_el.get("title", "Low") if impact_el else "Low",
-                    "event": event_el.get_text(strip=True)
+                    "time": time.get_text(strip=True),
+                    "currency": currency.get_text(strip=True),
+                    "impact": impact["title"] if impact else "Low",
+                    "event": event.get_text(strip=True)
                 })
 
         return events[:5]
