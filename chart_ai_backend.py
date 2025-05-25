@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
+from finnhub import get_recent_news, get_economic_calendar
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
