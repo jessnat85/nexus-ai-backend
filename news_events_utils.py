@@ -34,14 +34,17 @@ def scrape_forex_factory():
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/122.0.0.0 Safari/537.36"
-            )
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Referer": "https://www.google.com/"
         }
         res = requests.get("https://www.forexfactory.com/calendar", headers=headers)
         res.raise_for_status()
         soup = BeautifulSoup(res.text, "html.parser")
 
         events = []
-        for row in soup.select("tr.calendar__row")[:10]:  # Max 10 to be safe
+        for row in soup.select("tr.calendar__row")[:10]:  # Scrape first 10 rows for safety
             time = row.select_one("td.calendar__time")
             currency = row.select_one("td.calendar__currency")
             impact = row.select_one("td.calendar__impact img")
