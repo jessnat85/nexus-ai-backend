@@ -30,8 +30,6 @@ class StrategyResult(BaseModel):
     stopLoss: float
     takeProfit: float
     confidence: float
-    riskReward: float
-    tradeType: str
     commentary: str
 
 class FullAnalysis(BaseModel):
@@ -69,22 +67,23 @@ async def analyze_chart(file: UploadFile = File(...)):
                 max_tokens=1000
             )
             raw = response.choices[0].message.content
-            print(f"Raw GPT output ({strategy}):\n", raw)
+            print(f"Raw GPT output ({strategy}):\n{raw}")
+
             match = re.search(r'{.*}', raw, re.DOTALL)
             if match:
-                json_data = json.loads(match.group())
-                json_data["strategy"] = strategy
-                json_data["riskReward"] = calculate_rr(
-                    json_data["entry"],
-                    json_data["stopLoss"],
-                    json_data["takeProfit"],
-                    json_data["signal"]
-                )
-                results.append(StrategyResult(**json_data))
+                try:
+                    json_data = json.loads(match.group())
+                    json_data["strategy"] = strategy
+                    results.append(StrategyResult(**json_data))
+                except Exception as json_err:
+                    print(f"⚠️ Skipping {strategy} - JSON parse error: {json_err}")
+                    continue
             else:
-                raise ValueError("No valid JSON object found")
+                print(f"⚠️ Skipping {strategy} - No valid JSON object found")
+                continue
+
         except Exception as e:
-            print(f"Error in {strategy} analysis: {str(e)}")
+            print(f"⚠️ Error during {strategy} analysis: {str(e)}")
             continue
 
     super_trade = False
@@ -94,15 +93,6 @@ async def analyze_chart(file: UploadFile = File(...)):
             super_trade = True
 
     return FullAnalysis(results=results, superTrade=super_trade)
-
-def calculate_rr(entry, stop, target, signal):
-    try:
-        if signal.lower() == "buy":
-            return round((target - entry) / (entry - stop), 2)
-        else:
-            return round((entry - target) / (stop - entry), 2)
-    except ZeroDivisionError:
-        return 0.0
 
 def generate_prompt(strategy: str) -> str:
     schema = (
@@ -117,13 +107,13 @@ def generate_prompt(strategy: str) -> str:
         "  \"takeProfit\": float,\n"
         "  \"confidence\": float (0 to 100),\n"
         "  // Estimate this based on clarity, confluence, and strength of the pattern. Do NOT use vague terms like 'High'.\n"
-        "  \"riskReward\": float,\n"
-        "  \"tradeType\": \"Reversal, Breakout, Pullback, etc.\",\n"
         "  \"commentary\": \"Explain the rationale behind the trade setup.\"\n"
         "}\n\n"
-        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown."
+        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown. "
+        "All numbers must be valid floats (no commas or quotes)."
     )
-    base = {
+
+    strategy_prompts = {
         "SMC": "You're a Smart Money Concept (SMC) expert. Analyze this chart for one high-probability SMC trade setup based on CHoCH, BOS, or OB retest. ",
         "Breakout": "You're a breakout strategy expert. Identify range breaks or trendline breaks and retests. ",
         "Fibonacci": "You're a Fibonacci retracement expert. Detect reactions to 0.618/0.786 retracements. ",
@@ -135,4 +125,6 @@ def generate_prompt(strategy: str) -> str:
         "Scalping": "You're a scalper. Look for microstructure shifts and fast momentum entries. ",
         "OrderBlock": "You specialize in order blocks. Identify OB formation and retests with confirmation. ",
     }
-    return base.get(strategy, "") + schema.replace("{strategy_name}", strategy)
+
+    prompt_intro = strategy_prompts.get(strategy, "")
+    return prompt_intro + schema.replace("{strategy_name}", strategy)
