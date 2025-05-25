@@ -104,12 +104,9 @@ async def analyze_chart(file: UploadFile = File(...)):
             rr_ok = all(((r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)) >= 1.5 for r in group)
             return avg_conf >= 78 and same_bias and rr_ok
 
-        if check_confluence(buy_signals):
-            super_trade = True
-        elif check_confluence(sell_signals):
+        if check_confluence(buy_signals) or check_confluence(sell_signals):
             super_trade = True
 
-    # Determine top pick by confidence
     if results:
         top_pick = max(results, key=lambda r: r.confidence)
 
