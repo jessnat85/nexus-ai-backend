@@ -30,7 +30,11 @@ def scrape_forex_factory():
     """Scrape top 5 economic events from Forex Factory"""
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            )
         }
         res = requests.get("https://www.forexfactory.com/calendar", headers=headers)
         res.raise_for_status()
