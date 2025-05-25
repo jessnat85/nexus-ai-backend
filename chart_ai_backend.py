@@ -56,7 +56,7 @@ async def analyze_chart(file: UploadFile = File(...)):
             prompt = generate_prompt(strategy)
             response = openai.chat.completions.create(
                 model="gpt-4o",
-                temperature=0,
+                temperature=0.4,
                 messages=[
                     {
                         "role": "user",
@@ -92,7 +92,6 @@ async def analyze_chart(file: UploadFile = File(...)):
     top_pick = None
 
     if len(results) >= 3:
-        # Group by signal
         buy_signals = [r for r in results if r.signal == "Buy"]
         sell_signals = [r for r in results if r.signal == "Sell"]
 
@@ -124,26 +123,25 @@ def generate_prompt(strategy: str) -> str:
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
         "  \"confidence\": float (0 to 100),\n"
-        "  // Estimate this based on clarity, confluence, and strength of the pattern. Do NOT use vague terms like 'High'.\n"
-        "  \"tradeType\": \"Scalp, Intraday, Swing\",\n"
-        "  \"commentary\": \"Explain the rationale behind the trade setup.\"\n"
+        "  // Estimate this based on clarity, confluence, and strength of the pattern.\n"
+        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
+        "  \"commentary\": \"Write a detailed and insightful explanation using trading logic, structure, levels, risk-reward, and confirmation.\"\n"
         "}\n\n"
-        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown. "
-        "All numbers must be valid floats (no commas or quotes)."
+        "⚠️ Return only one flat JSON object. No nested data, no text before or after."
     )
 
     strategy_prompts = {
-        "SMC": "You're a Smart Money Concept (SMC) expert. Analyze this chart for one high-probability SMC trade setup based on CHoCH, BOS, or OB retest. ",
-        "Breakout": "You're a breakout strategy expert. Identify range breaks or trendline breaks and retests. ",
-        "Fibonacci": "You're a Fibonacci retracement expert. Detect reactions to 0.618/0.786 retracements. ",
-        "PriceAction": "You're a price action expert. Look for engulfing candles, pin bars at key levels, and structure shifts. ",
-        "Reversal": "Analyze this chart for reversal setups: divergence, candle patterns, or exhaustion at levels. ",
-        "Trendline": "You're a trendline expert. Look for touches and breaks of major trendlines with retests. ",
-        "LiquiditySweep": "Detect fakeouts or liquidity grabs followed by reversals. Look for price wicks and reaction. ",
-        "SupportResistance": "Look for bounces or breaks from horizontal support/resistance levels. Ignore indicators. ",
-        "Scalping": "You're a scalper. Look for microstructure shifts and fast momentum entries. ",
-        "OrderBlock": "You specialize in order blocks. Identify OB formation and retests with confirmation. ",
+        "SMC": "You're an expert in Smart Money Concepts. Identify a CHoCH, BOS or OB Retest with precision.",
+        "Breakout": "You're a breakout specialist. Spot range or trendline breaks, with confirmation if retested.",
+        "Fibonacci": "You're a Fibonacci strategy pro. Identify a clean bounce or rejection at the 0.618 or 0.786 levels. Specify how the level aligns with structure.",
+        "PriceAction": "You're a price action expert. Identify pin bars, engulfing candles, or market structure breaks with clean context.",
+        "Reversal": "You're a reversal trader. Look for divergence, overextensions, and clear rejection patterns at logical reversal zones.",
+        "Trendline": "Spot clean trendline touches, breaks, and retests. Clearly specify slope and reaction.",
+        "LiquiditySweep": "Detect liquidity grabs or stop hunts followed by reversal signals.",
+        "SupportResistance": "Analyze price reaction at horizontal levels. Identify rejection, fakeouts, or bounces.",
+        "Scalping": "You're a scalping specialist. Look for sharp momentum shifts, microstructure breaks, and quick entries.",
+        "OrderBlock": "You're an order block specialist. Identify recent OB formations and retests with confirmation."
     }
 
-    prompt_intro = strategy_prompts.get(strategy, "")
-    return prompt_intro + schema.replace("{strategy_name}", strategy)
+    intro = strategy_prompts.get(strategy, "")
+    return intro + "\n" + schema.replace("{strategy_name}", strategy)
