@@ -49,9 +49,11 @@ def generate_news_context():
 
     news_block = "\n".join(f"- {n['title'][:100]}" for n in news)
     econ_block = "\n".join(
-        f"- {e['event']} (Impact: {e.get('impact', 'Unknown')}): Time={e.get('time', '?')} Currency={e.get('currency', '?')}"
+        f"- {e['event']} (Impact: {e.get('impact', 'Unknown')}) at {e.get('time', '?')} [{e.get('currency', '?')}]"
         for e in calendar
     )
+
+    return f"Economic Events (as of {date_today}):\n{econ_block}\n\nRecent News Headlines:\n{news_block}"
 
     return f"Economic Events (as of {date_today}):\n{econ_block}\n\nRecent News Headlines:\n{news_block}"
 
