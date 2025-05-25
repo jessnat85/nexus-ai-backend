@@ -44,7 +44,8 @@ class FullAnalysis(BaseModel):
 async def analyze_chart(
     file: UploadFile = File(...),
     portfolioSize: float = Form(10000),
-    riskTolerance: str = Form("moderate")
+    riskTolerance: str = Form("moderate"),
+    assetType: str = Form(None)
 ):
     image = Image.open(io.BytesIO(await file.read()))
     buffered = io.BytesIO()
@@ -56,6 +57,7 @@ async def analyze_chart(
         "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "OrderBlock"
     ]
     results = []
+    raw_commentaries = []
 
     for strategy in strategies:
         try:
@@ -82,52 +84,8 @@ async def analyze_chart(
                 try:
                     json_data = json.loads(match.group())
                     json_data["strategy"] = strategy
-
-                    # Basic asset type detection
-                    lower_commentary = json_data.get("commentary", "").lower()
-                    if any(x in lower_commentary for x in ["eurusd", "gbpusd", "usd", "pip"]):
-                        asset_type = "forex"
-                    elif "gold" in lower_commentary or "xau" in lower_commentary:
-                        asset_type = "gold"
-                    elif "btc" in lower_commentary or "crypto" in lower_commentary:
-                        asset_type = "crypto"
-                    elif any(x in lower_commentary for x in ["nasdaq", "s&p", "dow"]):
-                        asset_type = "indices"
-                    elif any(x in lower_commentary for x in ["stock", "share"]):
-                        asset_type = "stock"
-                    else:
-                        asset_type = "Unknown"
-
-                    json_data["assetType"] = asset_type
-
-                    # Calculate risk
-                    result = StrategyResult(**json_data)
-                    risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
-                    risk_amount = portfolioSize * risk_percent
-                    stop_distance = abs(result.entry - result.stopLoss)
-
-                    if stop_distance > 0:
-                        if asset_type == "forex":
-                            pip_value = 10
-                            lots = risk_amount / (stop_distance / 0.0001 * pip_value)
-                            result.recommendedSize = f"{lots:.2f} lots"
-                        elif asset_type == "gold":
-                            contracts = risk_amount / (stop_distance * 100)
-                            result.recommendedSize = f"{contracts:.2f} contracts"
-                        elif asset_type == "crypto":
-                            coins = risk_amount / stop_distance
-                            result.recommendedSize = f"{coins:.4f} units"
-                        elif asset_type == "stock":
-                            shares = risk_amount / stop_distance
-                            result.recommendedSize = f"{int(shares)} shares"
-                        elif asset_type == "indices":
-                            units = risk_amount / stop_distance
-                            result.recommendedSize = f"{units:.2f} contracts"
-                        else:
-                            units = risk_amount / stop_distance
-                            result.recommendedSize = f"{units:.2f} units"
-
-                    results.append(result)
+                    raw_commentaries.append(json_data.get("commentary", ""))
+                    results.append(StrategyResult(**json_data))
                 except Exception as json_err:
                     print(f"⚠️ Skipping {strategy} - JSON parse error: {json_err}")
                     continue
@@ -139,8 +97,52 @@ async def analyze_chart(
             print(f"⚠️ Error during {strategy} analysis: {str(e)}")
             continue
 
+    def detect_asset_type_from_commentary(text):
+        text = text.lower()
+        if any(x in text for x in ["eurusd", "gbpusd", "usd", "pip"]):
+            return "forex"
+        elif "gold" in text or "xau" in text:
+            return "gold"
+        elif "btc" in text or "crypto" in text:
+            return "crypto"
+        elif any(x in text for x in ["nasdaq", "s&p", "dow"]):
+            return "indices"
+        elif any(x in text for x in ["stock", "share"]):
+            return "stock"
+        return "unknown"
+
+    final_asset_type = assetType.lower() if assetType else detect_asset_type_from_commentary(" ".join(raw_commentaries))
+
+    risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
+    risk_amount = portfolioSize * risk_percent
+
+    for result in results:
+        result.assetType = final_asset_type
+        stop_distance = abs(result.entry - result.stopLoss)
+
+        if stop_distance > 0:
+            if final_asset_type == "forex":
+                pip_value = 10
+                lots = risk_amount / (stop_distance / 0.0001 * pip_value)
+                result.recommendedSize = f"{lots:.2f} lots"
+            elif final_asset_type == "gold":
+                contracts = risk_amount / (stop_distance * 100)
+                result.recommendedSize = f"{contracts:.2f} contracts"
+            elif final_asset_type == "crypto":
+                coins = risk_amount / stop_distance
+                result.recommendedSize = f"{coins:.4f} units"
+            elif final_asset_type == "stock":
+                shares = risk_amount / stop_distance
+                result.recommendedSize = f"{int(shares)} shares"
+            elif final_asset_type == "indices":
+                units = risk_amount / stop_distance
+                result.recommendedSize = f"{units:.2f} contracts"
+            else:
+                units = risk_amount / stop_distance
+                result.recommendedSize = f"{units:.2f} units"
+
     super_trade = False
-    top_pick = None
+    top_pick = max(results, key=lambda r: r.confidence, default=None)
 
     if len(results) >= 3:
         buy_signals = [r for r in results if r.signal == "Buy"]
@@ -157,9 +159,6 @@ async def analyze_chart(
         if check_confluence(buy_signals) or check_confluence(sell_signals):
             super_trade = True
 
-    if results:
-        top_pick = max(results, key=lambda r: r.confidence)
-
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick)
 
 def generate_prompt(strategy: str) -> str:
@@ -174,7 +173,6 @@ def generate_prompt(strategy: str) -> str:
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
         "  \"confidence\": float (0 to 100),\n"
-        "  // Estimate this based on clarity, confluence, and strength of the pattern.\n"
         "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
         "  \"commentary\": \"Write a detailed and insightful explanation using trading logic, structure, levels, risk-reward, and confirmation.\"\n"
         "}\n\n"
