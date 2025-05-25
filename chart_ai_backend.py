@@ -30,6 +30,7 @@ class StrategyResult(BaseModel):
     stopLoss: float
     takeProfit: float
     confidence: float
+    tradeType: str  # Added trade type: Scalp, Intraday, or Swing
     commentary: str
 
 class FullAnalysis(BaseModel):
@@ -106,24 +107,24 @@ def generate_prompt(strategy: str) -> str:
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
         "  \"confidence\": float (0 to 100),\n"
-        "  // Estimate this based on clarity, confluence, and strength of the pattern. Do NOT use vague terms like 'High'.\n"
-        "  \"commentary\": \"Explain the rationale behind the trade setup.\"\n"
+        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
+        "  \"commentary\": \"Explain the rationale behind the trade setup including structure, confluence, and timeframe.\"\n"
         "}\n\n"
-        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown. "
-        "All numbers must be valid floats (no commas or quotes)."
+        "⚠️ You must not return multiple setups or nested keys. Only one flat JSON object as shown."
+        " All numbers must be valid floats (no commas or quotes). Confidence must be a number, not a vague word."
     )
 
     strategy_prompts = {
-        "SMC": "You're a Smart Money Concept (SMC) expert. Analyze this chart for one high-probability SMC trade setup based on CHoCH, BOS, or OB retest. ",
-        "Breakout": "You're a breakout strategy expert. Identify range breaks or trendline breaks and retests. ",
-        "Fibonacci": "You're a Fibonacci retracement expert. Detect reactions to 0.618/0.786 retracements. ",
-        "PriceAction": "You're a price action expert. Look for engulfing candles, pin bars at key levels, and structure shifts. ",
-        "Reversal": "Analyze this chart for reversal setups: divergence, candle patterns, or exhaustion at levels. ",
-        "Trendline": "You're a trendline expert. Look for touches and breaks of major trendlines with retests. ",
-        "LiquiditySweep": "Detect fakeouts or liquidity grabs followed by reversals. Look for price wicks and reaction. ",
-        "SupportResistance": "Look for bounces or breaks from horizontal support/resistance levels. Ignore indicators. ",
-        "Scalping": "You're a scalper. Look for microstructure shifts and fast momentum entries. ",
-        "OrderBlock": "You specialize in order blocks. Identify OB formation and retests with confirmation. ",
+        "SMC": "You're a Smart Money Concept (SMC) expert. Analyze this chart for one high-probability trade based on CHoCH, BOS, or OB retest. Use SMC structure only. Estimate trade type. ",
+        "Breakout": "You're a breakout strategy expert. Identify range or trendline breakouts and retests. Determine if this is scalp, intraday or swing based on context. ",
+        "Fibonacci": "You're a Fibonacci retracement specialist. Look for price reacting near 0.618 or 0.786 retracements. Determine precision and confluence. ",
+        "PriceAction": "Analyze for price action patterns like engulfing, pin bars, or break of structure. Include context on timeframe and key zones. ",
+        "Reversal": "Look for reversal signs like RSI divergence, fakeouts, or rejection candles at key levels. Justify with structure context and time horizon. ",
+        "Trendline": "Identify valid trendline breaks or retests. Validate slope angle and touch count. Classify trade type. ",
+        "LiquiditySweep": "Detect clear stop hunts or liquidity grabs near recent highs/lows. Back it up with price reaction and structure. ",
+        "SupportResistance": "Locate clear S/R level interactions: bounces, breaks, or retests. Describe significance of the zone. ",
+        "Scalping": "You're a scalper. Identify very short-term setups from quick momentum shifts. Use microstructure logic. ",
+        "OrderBlock": "You're an OB expert. Detect one quality bullish or bearish order block with proper reaction. Describe timeframe context. ",
     }
 
     prompt_intro = strategy_prompts.get(strategy, "")
