@@ -42,20 +42,18 @@ class FullAnalysis(BaseModel):
     superTrade: bool
     topPick: StrategyResult | None
 
-
 def generate_news_context():
     date_today = datetime.utcnow().strftime('%Y-%m-%d')
-    news = get_recent_news("US")  # or derive symbol from assetType later
-    calendar = get_economic_calendar()
+    news = get_recent_news("US")
+    calendar = scrape_forex_factory()
 
-    news_block = "\n".join(f"- {n['headline'][:100]}" for n in news)
+    news_block = "\n".join(f"- {n['title'][:100]}" for n in news)
     econ_block = "\n".join(
-        f"- {e['event']} (Impact: {e.get('impact', 'Unknown')}): Actual={e.get('actual', '?')}, Forecast={e.get('forecast', '?')}, Previous={e.get('previous', '?')}"
+        f"- {e['event']} (Impact: {e.get('impact', 'Unknown')}): Time={e.get('time', '?')} Currency={e.get('currency', '?')}"
         for e in calendar
     )
 
     return f"Economic Events (as of {date_today}):\n{econ_block}\n\nRecent News Headlines:\n{news_block}"
-
 
 def generate_prompt(strategy: str, news_context: str) -> str:
     schema = (
@@ -90,7 +88,6 @@ def generate_prompt(strategy: str, news_context: str) -> str:
 
     intro = strategy_prompts.get(strategy, "")
     return f"{news_context}\n\n{intro}\n" + schema.replace("{strategy_name}", strategy)
-
 
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
