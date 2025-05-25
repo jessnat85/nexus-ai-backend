@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
+from datetime import datetime
 from finnhub import get_recent_news, get_economic_calendar
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -41,6 +42,56 @@ class FullAnalysis(BaseModel):
     superTrade: bool
     topPick: StrategyResult | None
 
+
+def generate_news_context():
+    date_today = datetime.utcnow().strftime('%Y-%m-%d')
+    news = get_recent_news("US")  # or derive symbol from assetType later
+    calendar = get_economic_calendar()
+
+    news_block = "\n".join(f"- {n['headline'][:100]}" for n in news)
+    econ_block = "\n".join(
+        f"- {e['event']} (Impact: {e.get('impact', 'Unknown')}): Actual={e.get('actual', '?')}, Forecast={e.get('forecast', '?')}, Previous={e.get('previous', '?')}"
+        for e in calendar
+    )
+
+    return f"Economic Events (as of {date_today}):\n{econ_block}\n\nRecent News Headlines:\n{news_block}"
+
+
+def generate_prompt(strategy: str, news_context: str) -> str:
+    schema = (
+        "Respond only with a JSON object using this exact schema:\n"
+        "{\n"
+        "  \"strategy\": \"{strategy_name}\",\n"
+        "  \"signal\": \"Buy or Sell\",\n"
+        "  \"bias\": \"Bullish or Bearish\",\n"
+        "  \"pattern\": \"Describe the key pattern you used\",\n"
+        "  \"entry\": float,\n"
+        "  \"stopLoss\": float,\n"
+        "  \"takeProfit\": float,\n"
+        "  \"confidence\": float (0 to 100),\n"
+        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
+        "  \"commentary\": \"Write a detailed and insightful explanation using trading logic, structure, levels, risk-reward, confirmation, and macro context.\"\n"
+        "}\n\n"
+        "\u26a0\ufe0f Return only one flat JSON object. No nested data, no text before or after."
+    )
+
+    strategy_prompts = {
+        "SMC": "You're an expert in Smart Money Concepts. Identify a CHoCH, BOS or OB Retest with precision.",
+        "Breakout": "You're a breakout specialist. Spot range or trendline breaks, with confirmation if retested.",
+        "Fibonacci": "You're a Fibonacci strategy pro. Identify a clean bounce or rejection at the 0.618 or 0.786 levels. Specify how the level aligns with structure.",
+        "PriceAction": "You're a price action expert. Identify pin bars, engulfing candles, or market structure breaks with clean context.",
+        "Reversal": "You're a reversal trader. Look for divergence, overextensions, and clear rejection patterns at logical reversal zones.",
+        "Trendline": "Spot clean trendline touches, breaks, and retests. Clearly specify slope and reaction.",
+        "LiquiditySweep": "Detect liquidity grabs or stop hunts followed by reversal signals.",
+        "SupportResistance": "Analyze price reaction at horizontal levels. Identify rejection, fakeouts, or bounces.",
+        "Scalping": "You're a scalping specialist. Look for sharp momentum shifts, microstructure breaks, and quick entries.",
+        "OrderBlock": "You're an order block specialist. Identify recent OB formations and retests with confirmation."
+    }
+
+    intro = strategy_prompts.get(strategy, "")
+    return f"{news_context}\n\n{intro}\n" + schema.replace("{strategy_name}", strategy)
+
+
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
     file: UploadFile = File(...),
@@ -59,10 +110,11 @@ async def analyze_chart(
     ]
     results = []
     raw_commentaries = []
+    news_context = generate_news_context()
 
     for strategy in strategies:
         try:
-            prompt = generate_prompt(strategy)
+            prompt = generate_prompt(strategy, news_context)
             response = openai.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.4,
@@ -113,7 +165,6 @@ async def analyze_chart(
         return "unknown"
 
     final_asset_type = assetType.lower() if assetType else detect_asset_type_from_commentary(" ".join(raw_commentaries))
-
     risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
     risk_amount = portfolioSize * risk_percent
 
@@ -161,37 +212,3 @@ async def analyze_chart(
             super_trade = True
 
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick)
-
-def generate_prompt(strategy: str) -> str:
-    schema = (
-        "Respond only with a JSON object using this exact schema:\n"
-        "{\n"
-        "  \"strategy\": \"{strategy_name}\",\n"
-        "  \"signal\": \"Buy or Sell\",\n"
-        "  \"bias\": \"Bullish or Bearish\",\n"
-        "  \"pattern\": \"Describe the key pattern you used\",\n"
-        "  \"entry\": float,\n"
-        "  \"stopLoss\": float,\n"
-        "  \"takeProfit\": float,\n"
-        "  \"confidence\": float (0 to 100),\n"
-        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
-        "  \"commentary\": \"Write a detailed and insightful explanation using trading logic, structure, levels, risk-reward, and confirmation.\"\n"
-        "}\n\n"
-        "⚠️ Return only one flat JSON object. No nested data, no text before or after."
-    )
-
-    strategy_prompts = {
-        "SMC": "You're an expert in Smart Money Concepts. Identify a CHoCH, BOS or OB Retest with precision.",
-        "Breakout": "You're a breakout specialist. Spot range or trendline breaks, with confirmation if retested.",
-        "Fibonacci": "You're a Fibonacci strategy pro. Identify a clean bounce or rejection at the 0.618 or 0.786 levels. Specify how the level aligns with structure.",
-        "PriceAction": "You're a price action expert. Identify pin bars, engulfing candles, or market structure breaks with clean context.",
-        "Reversal": "You're a reversal trader. Look for divergence, overextensions, and clear rejection patterns at logical reversal zones.",
-        "Trendline": "Spot clean trendline touches, breaks, and retests. Clearly specify slope and reaction.",
-        "LiquiditySweep": "Detect liquidity grabs or stop hunts followed by reversal signals.",
-        "SupportResistance": "Analyze price reaction at horizontal levels. Identify rejection, fakeouts, or bounces.",
-        "Scalping": "You're a scalping specialist. Look for sharp momentum shifts, microstructure breaks, and quick entries.",
-        "OrderBlock": "You're an order block specialist. Identify recent OB formations and retests with confirmation."
-    }
-
-    intro = strategy_prompts.get(strategy, "")
-    return intro + "\n" + schema.replace("{strategy_name}", strategy)
