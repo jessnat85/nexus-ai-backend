@@ -81,51 +81,55 @@ async def analyze_chart(
             if match:
                 try:
                     json_data = json.loads(match.group())
-                    json_data["strategy"] = strategy
+                    if all(k in json_data for k in ["signal", "bias", "pattern", "entry", "stopLoss", "takeProfit", "confidence", "tradeType"]):
+                        json_data["strategy"] = strategy
 
-                    lower_commentary = json_data.get("commentary", "").lower()
-                    if any(x in lower_commentary for x in ["eurusd", "gbpusd", "usd", "pip"]):
-                        asset_type = "forex"
-                    elif "gold" in lower_commentary or "xau" in lower_commentary:
-                        asset_type = "gold"
-                    elif "btc" in lower_commentary or "crypto" in lower_commentary:
-                        asset_type = "crypto"
-                    elif any(x in lower_commentary for x in ["nasdaq", "s&p", "dow"]):
-                        asset_type = "indices"
-                    elif any(x in lower_commentary for x in ["stock", "share"]):
-                        asset_type = "stock"
-                    else:
-                        asset_type = "Unknown"
-
-                    json_data["assetType"] = asset_type
-
-                    result = StrategyResult(**json_data)
-                    risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
-                    risk_amount = portfolioSize * risk_percent
-                    stop_distance = abs(result.entry - result.stopLoss)
-
-                    if stop_distance > 0:
-                        if asset_type == "forex":
-                            pip_value = 10
-                            lots = risk_amount / (stop_distance / 0.0001 * pip_value)
-                            result.recommendedSize = f"{lots:.2f} lots"
-                        elif asset_type == "gold":
-                            contracts = risk_amount / (stop_distance * 100)
-                            result.recommendedSize = f"{contracts:.2f} contracts"
-                        elif asset_type == "crypto":
-                            coins = risk_amount / stop_distance
-                            result.recommendedSize = f"{coins:.4f} units"
-                        elif asset_type == "stock":
-                            shares = risk_amount / stop_distance
-                            result.recommendedSize = f"{int(shares)} shares"
-                        elif asset_type == "indices":
-                            units = risk_amount / stop_distance
-                            result.recommendedSize = f"{units:.2f} contracts"
+                        lower_commentary = json_data.get("commentary", "").lower()
+                        if any(x in lower_commentary for x in ["eurusd", "gbpusd", "usd", "pip"]):
+                            asset_type = "forex"
+                        elif "gold" in lower_commentary or "xau" in lower_commentary:
+                            asset_type = "gold"
+                        elif "btc" in lower_commentary or "crypto" in lower_commentary:
+                            asset_type = "crypto"
+                        elif any(x in lower_commentary for x in ["nasdaq", "s&p", "dow"]):
+                            asset_type = "indices"
+                        elif any(x in lower_commentary for x in ["stock", "share"]):
+                            asset_type = "stock"
                         else:
-                            units = risk_amount / stop_distance
-                            result.recommendedSize = f"{units:.2f} units"
+                            asset_type = "Unknown"
 
-                    results.append(result)
+                        json_data["assetType"] = asset_type
+
+                        result = StrategyResult(**json_data)
+                        risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
+                        risk_amount = portfolioSize * risk_percent
+                        stop_distance = abs(result.entry - result.stopLoss)
+
+                        if stop_distance > 0:
+                            if asset_type == "forex":
+                                pip_value = 10
+                                lots = risk_amount / (stop_distance / 0.0001 * pip_value)
+                                result.recommendedSize = f"{lots:.2f} lots"
+                            elif asset_type == "gold":
+                                contracts = risk_amount / (stop_distance * 100)
+                                result.recommendedSize = f"{contracts:.2f} contracts"
+                            elif asset_type == "crypto":
+                                coins = risk_amount / stop_distance
+                                result.recommendedSize = f"{coins:.4f} units"
+                            elif asset_type == "stock":
+                                shares = risk_amount / stop_distance
+                                result.recommendedSize = f"{int(shares)} shares"
+                            elif asset_type == "indices":
+                                units = risk_amount / stop_distance
+                                result.recommendedSize = f"{units:.2f} contracts"
+                            else:
+                                units = risk_amount / stop_distance
+                                result.recommendedSize = f"{units:.2f} units"
+
+                        results.append(result)
+                    else:
+                        print(f"\u26a0\ufe0f Skipping {strategy} - Incomplete JSON object")
+                        continue
                 except Exception as json_err:
                     print(f"\u26a0\ufe0f Skipping {strategy} - JSON parse error: {json_err}")
                     continue
