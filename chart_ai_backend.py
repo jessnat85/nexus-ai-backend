@@ -53,7 +53,7 @@ async def analyze_chart(
 
     strategies = [
         "SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
-        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand"
+        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "OrderBlock"
     ]
     results = []
 
@@ -81,64 +81,61 @@ async def analyze_chart(
             if match:
                 try:
                     json_data = json.loads(match.group())
-                    if all(k in json_data for k in ["signal", "bias", "pattern", "entry", "stopLoss", "takeProfit", "confidence", "tradeType"]):
-                        json_data["strategy"] = strategy
+                    json_data["strategy"] = strategy
 
-                        lower_commentary = json_data.get("commentary", "").lower()
-                        if any(x in lower_commentary for x in ["eurusd", "gbpusd", "usd", "pip"]):
-                            asset_type = "forex"
-                        elif "gold" in lower_commentary or "xau" in lower_commentary:
-                            asset_type = "gold"
-                        elif "btc" in lower_commentary or "crypto" in lower_commentary:
-                            asset_type = "crypto"
-                        elif any(x in lower_commentary for x in ["nasdaq", "s&p", "dow"]):
-                            asset_type = "indices"
-                        elif any(x in lower_commentary for x in ["stock", "share"]):
-                            asset_type = "stock"
-                        else:
-                            asset_type = "Unknown"
-
-                        json_data["assetType"] = asset_type
-
-                        result = StrategyResult(**json_data)
-                        risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
-                        risk_amount = portfolioSize * risk_percent
-                        stop_distance = abs(result.entry - result.stopLoss)
-
-                        if stop_distance > 0:
-                            if asset_type == "forex":
-                                pip_value = 10
-                                lots = risk_amount / (stop_distance / 0.0001 * pip_value)
-                                result.recommendedSize = f"{lots:.2f} lots"
-                            elif asset_type == "gold":
-                                contracts = risk_amount / (stop_distance * 100)
-                                result.recommendedSize = f"{contracts:.2f} contracts"
-                            elif asset_type == "crypto":
-                                coins = risk_amount / stop_distance
-                                result.recommendedSize = f"{coins:.4f} units"
-                            elif asset_type == "stock":
-                                shares = risk_amount / stop_distance
-                                result.recommendedSize = f"{int(shares)} shares"
-                            elif asset_type == "indices":
-                                units = risk_amount / stop_distance
-                                result.recommendedSize = f"{units:.2f} contracts"
-                            else:
-                                units = risk_amount / stop_distance
-                                result.recommendedSize = f"{units:.2f} units"
-
-                        results.append(result)
+                    # Basic asset type detection
+                    lower_commentary = json_data.get("commentary", "").lower()
+                    if any(x in lower_commentary for x in ["eurusd", "gbpusd", "usd", "pip"]):
+                        asset_type = "forex"
+                    elif "gold" in lower_commentary or "xau" in lower_commentary:
+                        asset_type = "gold"
+                    elif "btc" in lower_commentary or "crypto" in lower_commentary:
+                        asset_type = "crypto"
+                    elif any(x in lower_commentary for x in ["nasdaq", "s&p", "dow"]):
+                        asset_type = "indices"
+                    elif any(x in lower_commentary for x in ["stock", "share"]):
+                        asset_type = "stock"
                     else:
-                        print(f"\u26a0\ufe0f Skipping {strategy} - Incomplete JSON object")
-                        continue
+                        asset_type = "Unknown"
+
+                    json_data["assetType"] = asset_type
+
+                    result = StrategyResult(**json_data)
+                    risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
+                    risk_amount = portfolioSize * risk_percent
+                    stop_distance = abs(result.entry - result.stopLoss)
+
+                    if stop_distance > 0:
+                        if asset_type == "forex":
+                            pip_value = 10
+                            lots = risk_amount / (stop_distance / 0.0001 * pip_value)
+                            result.recommendedSize = f"{lots:.2f} lots"
+                        elif asset_type == "gold":
+                            contracts = risk_amount / (stop_distance * 100)
+                            result.recommendedSize = f"{contracts:.2f} contracts"
+                        elif asset_type == "crypto":
+                            coins = risk_amount / stop_distance
+                            result.recommendedSize = f"{coins:.4f} units"
+                        elif asset_type == "stock":
+                            shares = risk_amount / stop_distance
+                            result.recommendedSize = f"{int(shares)} shares"
+                        elif asset_type == "indices":
+                            units = risk_amount / stop_distance
+                            result.recommendedSize = f"{units:.2f} contracts"
+                        else:
+                            units = risk_amount / stop_distance
+                            result.recommendedSize = f"{units:.2f} units"
+
+                    results.append(result)
                 except Exception as json_err:
-                    print(f"\u26a0\ufe0f Skipping {strategy} - JSON parse error: {json_err}")
+                    print(f"⚠️ Skipping {strategy} - JSON parse error: {json_err}")
                     continue
             else:
-                print(f"\u26a0\ufe0f Skipping {strategy} - No valid JSON object found")
+                print(f"⚠️ Skipping {strategy} - No valid JSON object found")
                 continue
 
         except Exception as e:
-            print(f"\u26a0\ufe0f Error during {strategy} analysis: {str(e)}")
+            print(f"⚠️ Error during {strategy} analysis: {str(e)}")
             continue
 
     super_trade = False
@@ -176,10 +173,11 @@ def generate_prompt(strategy: str) -> str:
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
         "  \"confidence\": float (0 to 100),\n"
+        "  // Estimate this based on clarity, confluence, and strength of the pattern.\n"
         "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
-        "  \"commentary\": \"Write a detailed and insightful explanation using trading logic, structure, levels, risk-reward, confirmation, and macro context.\"\n"
+        "  \"commentary\": \"Write a detailed and insightful explanation using trading logic, structure, levels, risk-reward, and confirmation.\"\n"
         "}\n\n"
-        "\u26a0\ufe0f Return only one flat JSON object. No nested data, no text before or after."
+        "⚠️ Return only one flat JSON object. No nested data, no text before or after."
     )
 
     strategy_prompts = {
