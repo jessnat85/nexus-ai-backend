@@ -53,7 +53,7 @@ async def analyze_chart(
 
     strategies = [
         "SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
-        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "OrderBlock"
+        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand"
     ]
     results = []
 
@@ -101,8 +101,8 @@ async def analyze_chart(
                     json_data["assetType"] = asset_type
 
                     if "entry" not in json_data or "signal" not in json_data:
-                    print(f"⚠️ Skipping {strategy} - No trade setup, only commentary.")
-                    continue
+                        print(f"⚠️ Skipping {strategy} - No trade setup, only commentary.")
+                        continue
 
                     result = StrategyResult(**json_data)
                     risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
