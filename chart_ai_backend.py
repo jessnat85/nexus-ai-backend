@@ -39,6 +39,7 @@ class FullAnalysis(BaseModel):
     results: list[StrategyResult]
     superTrade: bool
     topPick: StrategyResult | None
+    conflictCommentary: str | None = None
 
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
@@ -143,6 +144,7 @@ async def analyze_chart(
 
     super_trade = False
     top_pick = None
+    conflict_commentary = None
 
     if len(results) >= 3:
         buy_signals = [r for r in results if r.signal == "Buy"]
@@ -159,10 +161,20 @@ async def analyze_chart(
         if check_confluence(buy_signals) or check_confluence(sell_signals):
             super_trade = True
 
+        if buy_signals and sell_signals:
+            best_buy = max(buy_signals, key=lambda r: (r.confidence, (r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)))
+            best_sell = max(sell_signals, key=lambda r: (r.confidence, (r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)))
+            conflict_commentary = (
+                f"\u26a0\ufe0f Conflicting signals detected:\n"
+                f"- One strategy suggests a **Buy** with {best_buy.confidence}% confidence and RR {((best_buy.takeProfit - best_buy.entry) / abs(best_buy.entry - best_buy.stopLoss)):.2f}.\n"
+                f"- Another suggests a **Sell** with {best_sell.confidence}% confidence and RR {((best_sell.takeProfit - best_sell.entry) / abs(best_sell.entry - best_sell.stopLoss)):.2f}.\n\n"
+                "\ud83e\uddd0 This may indicate a market in transition or uncertainty. Consider waiting for clarity or confirmation."
+            )
+
     if results:
         top_pick = max(results, key=lambda r: r.confidence)
 
-    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick)
+    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
 
 def generate_prompt(strategy: str) -> str:
     strategy_prompts = {
