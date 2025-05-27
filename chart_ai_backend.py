@@ -54,7 +54,7 @@ async def analyze_chart(
 
     strategies = [
         "SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
-        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand"
+        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand", "NexusPulse"
     ]
     results = []
 
@@ -189,8 +189,36 @@ def generate_prompt(strategy: str) -> str:
 
         "Scalping": "You are analyzing for fast, low-risk scalping trades.\n\nInstructions:\n1. Look for micro price reactions at key zones.\n2. Confirm with candle patterns or fast rejection.\n3. Entry should have tight SL and fast TP (<1.5x RR).\n\nIf no suitable setup, return:\n{\"superTrade\": false, \"commentary\": \"No suitable scalping setup available.\"}",
 
-        "SupplyDemand": "You are a trading assistant specialized in Supply and Demand analysis.\n\nInstructions:\n1. Identify clear supply (rally-base-drop) and demand (drop-base-rally) zones.\n2. Focus on zones with strong imbalance followed by a large move.\n3. Confirm the zone is fresh and check for price return with a rejection pattern.\n\nIf no reaction or fresh zone exists, return:\n{\"superTrade\": false, \"commentary\": \"No strong reaction at any supply or demand zone.\"}"
+        "SupplyDemand": "You are a trading assistant specialized in Supply and Demand analysis.\n\nInstructions:\n1. Identify clear supply (rally-base-drop) and demand (drop-base-rally) zones.\n2. Focus on zones with strong imbalance followed by a large move.\n3. Confirm the zone is fresh and check for price return with a rejection pattern.\n\nIf no reaction or fresh zone exists, return:\n{\"superTrade\": false, \"commentary\": \"No strong reaction at any supply or demand zone.\"}",
+
+        "NexusPulse": "You are a general trading assistant providing high-level insight when no specific strategy applies.\n\nInstructions:\n1. Analyze trend, price structure (HH/HL or LL/LH), support/resistance, and recent volatility.\n2. Identify if the market is trending, ranging, or reversing.\n3. Offer a possible trade setup if there's logic (entry, SL, TP, bias), even if confluence is low.\n4. Clearly communicate uncertainty or market caution if applicable.\n\nUse looser thresholds and provide broader guidance.\nIf absolutely no trade idea is viable, return:\n{\"commentary\": \"No reasonable trade idea found given current market conditions.\"}"
     }
+
+    fallback = (
+        "\n\nIf no valid setup is found with strict criteria, slightly relax the conditions "
+        "and attempt to generate the best possible trade idea. Use a confidence score between 60 and 70 "
+        "and clearly explain any uncertainty or weakness in the commentary."
+    )
+
+    schema = (
+        "\n\nRespond only with a JSON object using this exact schema:\n"
+        "{\n"
+        f"  \"strategy\": \"{strategy}\",\n"
+        "  \"signal\": \"Buy or Sell\",\n"
+        "  \"bias\": \"Bullish or Bearish\",\n"
+        "  \"pattern\": \"Describe the key pattern you used\",\n"
+        "  \"entry\": float,\n"
+        "  \"stopLoss\": float,\n"
+        "  \"takeProfit\": float,\n"
+        "  \"confidence\": float (0 to 100),\n"
+        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
+        "  \"commentary\": \"Detailed explanation using logic, structure, risk-reward, confluence.\"\n"
+        "}\n"
+        "⚠️ Return only a single flat JSON object. Do not return any text before or after."
+    )
+
+    prompt_intro = strategy_prompts.get(strategy, "You are a trading assistant.")
+    return prompt_intro + fallback + schema
 
     fallback = (
         "\n\nIf no valid setup is found with strict criteria, slightly relax the conditions "
