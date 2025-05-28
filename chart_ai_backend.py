@@ -8,6 +8,9 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
+from datetime import datetime
+from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, Boolean
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -21,7 +24,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Instrument metadata map
+DATABASE_URL = "sqlite:///./trades.db"
+Base = declarative_base()
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+class TradeResult(Base):
+    __tablename__ = "trades"
+
+    id = Column(Integer, primary_key=True, index=True)
+    userId = Column(String, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    symbol = Column(String)
+    strategy = Column(String)
+    signal = Column(String)
+    bias = Column(String)
+    pattern = Column(String)
+    entry = Column(Float)
+    stopLoss = Column(Float)
+    takeProfit = Column(Float)
+    confidence = Column(Float)
+    tradeType = Column(String)
+    recommendedSize = Column(String)
+    assetType = Column(String)
+    commentary = Column(String)
+    isSuperTrade = Column(Boolean, default=False)
+    isTopPick = Column(Boolean, default=False)
+
+Base.metadata.create_all(bind=engine)
+
 INSTRUMENT_MAP = {
     "MNQ": {"assetType": "Indices", "pointValue": 2, "tickSize": 0.25, "unitLabel": "micro contracts"},
     "NQ": {"assetType": "Indices", "pointValue": 20, "tickSize": 0.25, "unitLabel": "contracts"},
@@ -97,6 +128,41 @@ def calculate_recommended_size(entry, stopLoss, portfolioSize, riskTolerance, me
         dollar_risk = sl_points * meta["pointValue"]
         size = risk_amount / dollar_risk
         return f"{size:.2f} {meta['unitLabel']}"
+
+def save_to_db(result, symbol, userId, super_trade, top_pick):
+    db = SessionLocal()
+    try:
+        db_result = TradeResult(
+            userId=userId,
+            symbol=symbol,
+            strategy=result.strategy,
+            signal=result.signal,
+            bias=result.bias,
+            pattern=result.pattern,
+            entry=result.entry,
+            stopLoss=result.stopLoss,
+            takeProfit=result.takeProfit,
+            confidence=result.confidence,
+            tradeType=result.tradeType,
+            recommendedSize=result.recommendedSize,
+            assetType=result.assetType,
+            commentary=result.commentary,
+            isSuperTrade=super_trade and (result.strategy == top_pick.strategy if top_pick else False),
+            isTopPick=(result.strategy == top_pick.strategy if top_pick else False)
+        )
+        db.add(db_result)
+        db.commit()
+    except Exception as e:
+        print(f"DB save error: {e}")
+    finally:
+        db.close()
+
+@app.get("/history/{user_id}")
+def get_user_history(user_id: str):
+    db = SessionLocal()
+    trades = db.query(TradeResult).filter(TradeResult.userId == user_id).order_by(TradeResult.timestamp.desc()).all()
+    db.close()
+    return [t.__dict__ for t in trades]
 
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
