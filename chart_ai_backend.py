@@ -182,45 +182,48 @@ async def analyze_chart(
                   "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand", "NexusPulse"]
     results = []
 
+    from pydantic import ValidationError
+
     for strategy in strategies:
         try:
-    prompt = generate_prompt(strategy)
-    response = openai.chat.completions.create(
-        model="gpt-4o",
-        temperature=0.4,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                ]
-            }
-        ],
-        max_tokens=1000
-    )
-    raw = response.choices[0].message.content
-    match = re.search(r'{.*}', raw, re.DOTALL)
-    if not match:
-        continue
-    json_data = json.loads(match.group())
-    json_data["strategy"] = strategy
-    json_data["assetType"] = meta["assetType"]
+            prompt = generate_prompt(strategy)
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                temperature=0.4,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                        ]
+                    }
+                ],
+                max_tokens=1000
+            )
+            raw = response.choices[0].message.content
+            match = re.search(r'{.*}', raw, re.DOTALL)
+            if not match:
+                continue
 
-    if "entry" in json_data and "stopLoss" in json_data:
-        json_data["recommendedSize"] = calculate_recommended_size(
-            json_data["entry"], json_data["stopLoss"], portfolioSize, riskTolerance, meta
-        )
+            json_data = json.loads(match.group())
+            json_data["strategy"] = strategy
+            json_data["assetType"] = meta["assetType"]
 
-    try:
-        validated = StrategyResult(**json_data)
-        results.append(validated)
-    except ValidationError as e:
-        print(f"⚠️ Skipping invalid strategy result for {strategy}: {e}")
+            if "entry" in json_data and "stopLoss" in json_data:
+                json_data["recommendedSize"] = calculate_recommended_size(
+                    json_data["entry"], json_data["stopLoss"], portfolioSize, riskTolerance, meta
+                )
 
-except Exception as e:
-    print(f"Error in {strategy}: {e}")
-    continue
+            try:
+                validated = StrategyResult(**json_data)
+                results.append(validated)
+            except ValidationError as e:
+                print(f"⚠️ Skipping invalid strategy result for {strategy}: {e}")
+
+        except Exception as e:
+            print(f"❌ Error in strategy {strategy}: {e}")
+            continue
 
     super_trade = False
     top_pick = None
