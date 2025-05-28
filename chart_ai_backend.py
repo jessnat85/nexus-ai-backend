@@ -1,21 +1,29 @@
 import os
 import io
-import openai
-import base64
-import json
 import re
+import json
+import base64
+from datetime import datetime
+
+import openai
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from PIL import Image
-from datetime import datetime
-from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, Boolean
+from sqlalchemy import (
+    create_engine,
+    Column,
+    String,
+    Float,
+    Integer,
+    DateTime,
+    Boolean,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,7 +35,8 @@ app.add_middleware(
 DATABASE_URL = "sqlite:///./trades.db"
 Base = declarative_base()
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
 
 class TradeResult(Base):
     __tablename__ = "trades"
@@ -51,6 +60,7 @@ class TradeResult(Base):
     isSuperTrade = Column(Boolean, default=False)
     isTopPick = Column(Boolean, default=False)
 
+
 Base.metadata.create_all(bind=engine)
 
 INSTRUMENT_MAP = {
@@ -64,6 +74,7 @@ INSTRUMENT_MAP = {
     "BTCUSD": {"assetType": "Crypto", "pointValue": 1, "tickSize": 1, "unitLabel": "BTC"},
     "ETHUSD": {"assetType": "Crypto", "pointValue": 1, "tickSize": 1, "unitLabel": "ETH"},
 }
+
 
 class StrategyResult(BaseModel):
     strategy: str
@@ -79,19 +90,17 @@ class StrategyResult(BaseModel):
     recommendedSize: str = "N/A"
     assetType: str = "Unknown"
 
+
 class FullAnalysis(BaseModel):
     results: list[StrategyResult]
     superTrade: bool
     topPick: StrategyResult | None
     conflictCommentary: str | None = None
 
-def detect_symbol_and_metadata(image_b64):
-    prompt = (
-        "You're an AI that reads trading charts. Extract the symbol name, asset type, point value, tick size, and unit label.\n"
-        "Return this as JSON:\n"
-        "{\n  \"symbol\": \"MNQ\",\n  \"assetType\": \"Indices\",\n  \"pointValue\": 2,\n  \"tickSize\": 0.25,\n  \"unitLabel\": \"micro contracts\"\n}"
-    )
-    response = openai.chat.completions.create(
+
+def detect_symbol_and_metadata(image_b64: str) -> dict:
+    prompt = "You're an AI that reads trading charts. Extract symbol, asset type, point value, tick size, unit label in JSON."
+    resp = openai.chat.completions.create(
         model="gpt-4o",
         temperature=0.3,
         messages=[
@@ -100,94 +109,119 @@ def detect_symbol_and_metadata(image_b64):
                 "content": [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
-                ]
+                ],
             }
-        ]
+        ],
     )
     try:
-        match = re.search(r'{.*}', response.choices[0].message.content, re.DOTALL)
+        match = re.search(r"{.*}", resp.choices[0].message.content, re.DOTALL)
         return json.loads(match.group()) if match else {}
-    except Exception as e:
-        print(f"Symbol detection failed: {e}")
+    except Exception:
         return {}
 
-def calculate_recommended_size(entry, stopLoss, portfolioSize, riskTolerance, meta):
-    risk_pct = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
-    risk_amount = portfolioSize * risk_pct
-    sl_points = abs(entry - stopLoss)
 
-    if sl_points == 0:
+def calculate_recommended_size(entry: float, sl: float, portfolio: float, risk: str, meta: dict) -> str:
+    pct = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(risk.lower(), 0.01)
+    risk_amt = portfolio * pct
+    dist = abs(entry - sl)
+    if dist == 0:
         return "N/A"
-
     if "pipSize" in meta:
-        pips = sl_points / meta["pipSize"]
-        dollar_risk = pips * meta["pipValue"]
-        lots = risk_amount / dollar_risk
+        pips = dist / meta["pipSize"]
+        dollars = pips * meta["pipValue"]
+        lots = risk_amt / dollars if dollars else 0
         return f"{lots:.2f} {meta['unitLabel']}"
-    else:
-        dollar_risk = sl_points * meta["pointValue"]
-        size = risk_amount / dollar_risk
-        return f"{size:.2f} {meta['unitLabel']}"
+    dollars = dist * meta["pointValue"]
+    units = risk_amt / dollars if dollars else 0
+    return f"{units:.2f} {meta['unitLabel']}"
 
-def save_to_db(result, symbol, userId, super_trade, top_pick):
+
+def save_to_db(res: StrategyResult, symbol: str, user: str, super_t: bool, top: StrategyResult | None):
     db = SessionLocal()
-    try:
-        db_result = TradeResult(
-            userId=userId,
+    db.add(
+        TradeResult(
+            userId=user,
             symbol=symbol,
-            strategy=result.strategy,
-            signal=result.signal,
-            bias=result.bias,
-            pattern=result.pattern,
-            entry=result.entry,
-            stopLoss=result.stopLoss,
-            takeProfit=result.takeProfit,
-            confidence=result.confidence,
-            tradeType=result.tradeType,
-            recommendedSize=result.recommendedSize,
-            assetType=result.assetType,
-            commentary=result.commentary,
-            isSuperTrade=super_trade and (result.strategy == top_pick.strategy if top_pick else False),
-            isTopPick=(result.strategy == top_pick.strategy if top_pick else False)
+            strategy=res.strategy,
+            signal=res.signal,
+            bias=res.bias,
+            pattern=res.pattern,
+            entry=res.entry,
+            stopLoss=res.stopLoss,
+            takeProfit=res.takeProfit,
+            confidence=res.confidence,
+            tradeType=res.tradeType,
+            recommendedSize=res.recommendedSize,
+            assetType=res.assetType,
+            commentary=res.commentary,
+            isSuperTrade=super_t,
+            isTopPick=top is not None and res.strategy == top.strategy,
         )
-        db.add(db_result)
-        db.commit()
-    except Exception as e:
-        print(f"DB save error: {e}")
-    finally:
-        db.close()
+    )
+    db.commit()
+    db.close()
+
+
+def generate_prompt(strategy: str) -> str:
+    return (
+        f"You are an AI trading assistant. Provide a trade idea for {strategy} strategy as JSON with keys: "
+        "signal, bias, pattern, entry, stopLoss, takeProfit, confidence, tradeType, commentary."
+    )
+
+
+def check_confluence(group: list[StrategyResult]) -> bool:
+    if len(group) < 3:
+        return False
+    avg_conf = sum(r.confidence for r in group) / len(group)
+    same_bias = all(r.bias == group[0].bias for r in group)
+    rr_ok = all(((r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)) >= 1.5 for r in group)
+    return avg_conf >= 78 and same_bias and rr_ok
+
 
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
     file: UploadFile = File(...),
     portfolioSize: float = Form(10000),
     riskTolerance: str = Form("moderate"),
-    userId: str = Form(...)
+    userId: str = Form(...),
 ):
     image = Image.open(io.BytesIO(await file.read()))
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    img_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    symbol_meta = detect_symbol_and_metadata(img_b64)
-    fallback_symbol = re.sub(r'[\d\-]+', '', symbol_meta.get("symbol", "")).upper()
-    meta = INSTRUMENT_MAP.get(fallback_symbol, {
-        "assetType": symbol_meta.get("assetType", "Unknown"),
-        "pointValue": symbol_meta.get("pointValue", 1),
-        "tickSize": symbol_meta.get("tickSize", 0.1),
-        "unitLabel": symbol_meta.get("unitLabel", "units")
-    })
+    sym_meta = detect_symbol_and_metadata(img_b64)
+    symbol_fallback = re.sub(r"[\d\-]+", "", sym_meta.get("symbol", "")).upper()
+    meta = INSTRUMENT_MAP.get(
+        symbol_fallback,
+        {
+            "assetType": sym_meta.get("assetType", "Unknown"),
+            "pointValue": sym_meta.get("pointValue", 1),
+            "tickSize": sym_meta.get("tickSize", 0.1),
+            "unitLabel": sym_meta.get("unitLabel", "units"),
+        },
+    )
 
-    strategies = ["SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
-                  "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand", "NexusPulse"]
-    results = []
+    strategies = [
+        "SMC",
+        "Breakout",
+        "Fibonacci",
+        "PriceAction",
+        "Reversal",
+        "Trendline",
+        "LiquiditySweep",
+        "SupportResistance",
+        "Scalping",
+        "SupplyDemand",
+        "NexusPulse",
+    ]
 
-    from pydantic import ValidationError
+    results: list[StrategyResult] = []
 
-    for strategy in strategies:
+    for strat in strategies:
         try:
-            prompt = generate_prompt(strategy)
-            response = openai.chat.completions.create(
+            prompt = generate_prompt(strat)
+            resp = openai.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.4,
                 messages=[
@@ -196,70 +230,46 @@ async def analyze_chart(
                         "content": [
                             {"type": "text", "text": prompt},
                             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                        ]
+                        ],
                     }
                 ],
-                max_tokens=1000
+                max_tokens=1000,
             )
-            raw = response.choices[0].message.content
-            match = re.search(r'{.*}', raw, re.DOTALL)
+            match = re.search(r"{.*}", resp.choices[0].message.content, re.DOTALL)
             if not match:
                 continue
-
-            json_data = json.loads(match.group())
-            json_data["strategy"] = strategy
-            json_data["assetType"] = meta["assetType"]
-
-            if "entry" in json_data and "stopLoss" in json_data:
-                json_data["recommendedSize"] = calculate_recommended_size(
-                    json_data["entry"], json_data["stopLoss"], portfolioSize, riskTolerance, meta
-                )
-
+            data = json.loads(match.group())
+            if not {"signal", "entry", "stopLoss", "takeProfit"}.issubset(data):
+                continue
+            data["strategy"] = strat
+            data["assetType"] = meta["assetType"]
+            data["recommendedSize"] = calculate_recommended_size(
+                data["entry"],
+                data["stopLoss"],
+                portfolioSize,
+                riskTolerance,
+                meta,
+            )
             try:
-                validated = StrategyResult(**json_data)
-                results.append(validated)
-            except ValidationError as e:
-                print(f"⚠️ Skipping invalid strategy result for {strategy}: {e}")
-
-        except Exception as e:
-            print(f"❌ Error in strategy {strategy}: {e}")
+                res = StrategyResult(**data)
+                results.append(res)
+            except ValidationError:
+                continue
+        except Exception:
             continue
 
-    super_trade = False
-    top_pick = None
-    conflict_commentary = None
+    buy_group = [r for r in results if r.signal.lower() == "buy"]
+    sell_group = [r for r in results if r.signal.lower() == "sell"]
+    super_trade = check_confluence(buy_group) or check_confluence(sell_group)
+    top_pick = max(results, key=lambda r: r.confidence) if results else None
+    conflict = None
+    if top_pick and any(r.signal != top_pick.signal for r in results):
+        conflict = "⚠️ Conflicting trade signals detected. Proceed with caution."
 
-    if len(results) >= 3:
-        buy_signals = [r for r in results if r.signal == "Buy"]
-        sell_signals = [r for r in results if r.signal == "Sell"]
+    for r in results:
+        save_to_db(r, symbol_fallback or sym_meta.get("symbol", ""), userId, super_trade, top_pick)
 
-        def check_confluence(group):
-            if len(group) < 3:
-                return False
-            avg_conf = sum(r.confidence for r in group) / len(group)
-            same_bias = all(r.bias == group[0].bias for r in group)
-            rr_ok = all(((r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)) >= 1.5 for r in group)
-            return avg_conf >= 78 and same_bias and rr_ok
-
-        if check_confluence(buy_signals) or check_confluence(sell_signals):
-            super_trade = True
-
-    if results:
-        top_pick = max(results, key=lambda r: (r.confidence, (r.takeProfit - r.entry) / max(0.01, abs(r.entry - r.stopLoss))))
-
-    if any(r.signal != top_pick.signal for r in results):
-        conflict_commentary = "⚠️ Conflicting trade signals detected. Strategies are not fully aligned. Proceed with caution."
-
-    for res in results:
-        save_to_db(
-            result=res,
-            symbol=symbol_meta.get("symbol", fallback_symbol),
-            userId=userId,
-            super_trade=super_trade,
-            top_pick=top_pick
-        )
-
-    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
+    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict)
 
 @app.get("/history/{user_id}")
 def get_user_history(user_id: str):
