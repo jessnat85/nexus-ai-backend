@@ -272,11 +272,19 @@ async def analyze_chart(
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict)
 
 @app.get("/history/{user_id}")
-def get_user_history(user_id: str):
+def get_history(user_id: str):
     db = SessionLocal()
-    trades = db.query(TradeResult).filter(TradeResult.userId == user_id).order_by(TradeResult.timestamp.desc()).all()
+    trades = (
+        db.query(TradeResult)
+        .filter(TradeResult.userId == user_id)
+        .order_by(TradeResult.timestamp.desc())
+        .all()
+    )
     db.close()
-    return [t.__dict__ for t in trades]
+    def model_to_dict(obj):
+        return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+    return [model_to_dict(t) for t in trades]
+
 
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
