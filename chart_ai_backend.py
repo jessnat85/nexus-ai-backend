@@ -157,6 +157,100 @@ def save_to_db(result, symbol, userId, super_trade, top_pick):
     finally:
         db.close()
 
+@app.post("/analyze", response_model=FullAnalysis)
+async def analyze_chart(
+    file: UploadFile = File(...),
+    portfolioSize: float = Form(10000),
+    riskTolerance: str = Form("moderate"),
+    userId: str = Form(...)
+):
+    image = Image.open(io.BytesIO(await file.read()))
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+    symbol_meta = detect_symbol_and_metadata(img_b64)
+    fallback_symbol = re.sub(r'[\d\-]+', '', symbol_meta.get("symbol", "")).upper()
+    meta = INSTRUMENT_MAP.get(fallback_symbol, {
+        "assetType": symbol_meta.get("assetType", "Unknown"),
+        "pointValue": symbol_meta.get("pointValue", 1),
+        "tickSize": symbol_meta.get("tickSize", 0.1),
+        "unitLabel": symbol_meta.get("unitLabel", "units")
+    })
+
+    strategies = ["SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
+                  "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand", "NexusPulse"]
+    results = []
+
+    for strategy in strategies:
+        try:
+            prompt = generate_prompt(strategy)
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                temperature=0.4,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                        ]
+                    }
+                ],
+                max_tokens=1000
+            )
+            raw = response.choices[0].message.content
+            match = re.search(r'{.*}', raw, re.DOTALL)
+            if not match:
+                continue
+            json_data = json.loads(match.group())
+            json_data["strategy"] = strategy
+            json_data["assetType"] = meta["assetType"]
+            if "entry" in json_data and "stopLoss" in json_data:
+                json_data["recommendedSize"] = calculate_recommended_size(
+                    json_data["entry"], json_data["stopLoss"], portfolioSize, riskTolerance, meta
+                )
+            results.append(StrategyResult(**json_data))
+        except Exception as e:
+            print(f"Error in {strategy}: {e}")
+            continue
+
+    super_trade = False
+    top_pick = None
+    conflict_commentary = None
+
+    if len(results) >= 3:
+        buy_signals = [r for r in results if r.signal == "Buy"]
+        sell_signals = [r for r in results if r.signal == "Sell"]
+
+        def check_confluence(group):
+            if len(group) < 3:
+                return False
+            avg_conf = sum(r.confidence for r in group) / len(group)
+            same_bias = all(r.bias == group[0].bias for r in group)
+            rr_ok = all(((r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)) >= 1.5 for r in group)
+            return avg_conf >= 78 and same_bias and rr_ok
+
+        if check_confluence(buy_signals) or check_confluence(sell_signals):
+            super_trade = True
+
+    if results:
+        top_pick = max(results, key=lambda r: (r.confidence, (r.takeProfit - r.entry) / max(0.01, abs(r.entry - r.stopLoss))))
+
+    if any(r.signal != top_pick.signal for r in results):
+        conflict_commentary = "⚠️ Conflicting trade signals detected. Strategies are not fully aligned. Proceed with caution."
+
+    for res in results:
+        save_to_db(
+            result=res,
+            symbol=symbol_meta.get("symbol", fallback_symbol),
+            userId=userId,
+            super_trade=super_trade,
+            top_pick=top_pick
+        )
+
+    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
+
 @app.get("/history/{user_id}")
 def get_user_history(user_id: str):
     db = SessionLocal()
