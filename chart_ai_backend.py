@@ -21,6 +21,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Instrument metadata map
+INSTRUMENT_MAP = {
+    "MNQ": {"assetType": "Indices", "pointValue": 2, "tickSize": 0.25, "unitLabel": "micro contracts"},
+    "NQ": {"assetType": "Indices", "pointValue": 20, "tickSize": 0.25, "unitLabel": "contracts"},
+    "ES": {"assetType": "Indices", "pointValue": 50, "tickSize": 0.25, "unitLabel": "contracts"},
+    "MES": {"assetType": "Indices", "pointValue": 5, "tickSize": 0.25, "unitLabel": "micro contracts"},
+    "XAUUSD": {"assetType": "Gold", "pointValue": 1, "tickSize": 0.1, "unitLabel": "ounces"},
+    "EURUSD": {"assetType": "Forex", "pipValue": 10, "pipSize": 0.0001, "unitLabel": "lots"},
+    "USDJPY": {"assetType": "Forex", "pipValue": 10, "pipSize": 0.01, "unitLabel": "lots"},
+    "BTCUSD": {"assetType": "Crypto", "pointValue": 1, "tickSize": 1, "unitLabel": "BTC"},
+    "ETHUSD": {"assetType": "Crypto", "pointValue": 1, "tickSize": 1, "unitLabel": "ETH"},
+}
+
 class StrategyResult(BaseModel):
     strategy: str
     signal: str
@@ -41,6 +54,50 @@ class FullAnalysis(BaseModel):
     topPick: StrategyResult | None
     conflictCommentary: str | None = None
 
+def detect_symbol_and_metadata(image_b64):
+    prompt = (
+        "You're an AI that reads trading charts. Extract the symbol name, asset type, point value, tick size, and unit label.\n"
+        "Return this as JSON:\n"
+        "{\n  \"symbol\": \"MNQ\",\n  \"assetType\": \"Indices\",\n  \"pointValue\": 2,\n  \"tickSize\": 0.25,\n  \"unitLabel\": \"micro contracts\"\n}"
+    )
+    response = openai.chat.completions.create(
+        model="gpt-4o",
+        temperature=0.3,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+                ]
+            }
+        ]
+    )
+    try:
+        match = re.search(r'{.*}', response.choices[0].message.content, re.DOTALL)
+        return json.loads(match.group()) if match else {}
+    except Exception as e:
+        print(f"Symbol detection failed: {e}")
+        return {}
+
+def calculate_recommended_size(entry, stopLoss, portfolioSize, riskTolerance, meta):
+    risk_pct = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
+    risk_amount = portfolioSize * risk_pct
+    sl_points = abs(entry - stopLoss)
+
+    if sl_points == 0:
+        return "N/A"
+
+    if "pipSize" in meta:
+        pips = sl_points / meta["pipSize"]
+        dollar_risk = pips * meta["pipValue"]
+        lots = risk_amount / dollar_risk
+        return f"{lots:.2f} {meta['unitLabel']}"
+    else:
+        dollar_risk = sl_points * meta["pointValue"]
+        size = risk_amount / dollar_risk
+        return f"{size:.2f} {meta['unitLabel']}"
+
 @app.post("/analyze", response_model=FullAnalysis)
 async def analyze_chart(
     file: UploadFile = File(...),
@@ -52,10 +109,17 @@ async def analyze_chart(
     image.save(buffered, format="PNG")
     img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    strategies = [
-        "SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
-        "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand", "NexusPulse"
-    ]
+    symbol_meta = detect_symbol_and_metadata(img_b64)
+    fallback_symbol = re.sub(r'[\d\-]+', '', symbol_meta.get("symbol", "")).upper()
+    meta = INSTRUMENT_MAP.get(fallback_symbol, {
+        "assetType": symbol_meta.get("assetType", "Unknown"),
+        "pointValue": symbol_meta.get("pointValue", 1),
+        "tickSize": symbol_meta.get("tickSize", 0.1),
+        "unitLabel": symbol_meta.get("unitLabel", "units")
+    })
+
+    strategies = ["SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
+                  "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand", "NexusPulse"]
     results = []
 
     for strategy in strategies:
@@ -70,76 +134,25 @@ async def analyze_chart(
                         "content": [
                             {"type": "text", "text": prompt},
                             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                        ],
+                        ]
                     }
                 ],
                 max_tokens=1000
             )
             raw = response.choices[0].message.content
-            print(f"Raw GPT output ({strategy}):\n{raw}")
-
             match = re.search(r'{.*}', raw, re.DOTALL)
-            if match:
-                try:
-                    json_data = json.loads(match.group())
-                    json_data["strategy"] = strategy
-
-                    lower_commentary = json_data.get("commentary", "").lower()
-                    if any(x in lower_commentary for x in ["eurusd", "gbpusd", "usd", "pip"]):
-                        asset_type = "forex"
-                    elif "gold" in lower_commentary or "xau" in lower_commentary:
-                        asset_type = "gold"
-                    elif "btc" in lower_commentary or "crypto" in lower_commentary:
-                        asset_type = "crypto"
-                    elif any(x in lower_commentary for x in ["nasdaq", "s&p", "dow"]):
-                        asset_type = "indices"
-                    elif any(x in lower_commentary for x in ["stock", "share"]):
-                        asset_type = "stock"
-                    else:
-                        asset_type = "Unknown"
-
-                    json_data["assetType"] = asset_type
-
-                    if "entry" not in json_data or "signal" not in json_data:
-                        print(f"⚠️ Skipping {strategy} - No trade setup, only commentary.")
-                        continue
-
-                    result = StrategyResult(**json_data)
-                    risk_percent = {"low": 0.005, "moderate": 0.01, "high": 0.02}.get(riskTolerance.lower(), 0.01)
-                    risk_amount = portfolioSize * risk_percent
-                    stop_distance = abs(result.entry - result.stopLoss)
-
-                    if stop_distance > 0:
-                        if asset_type == "forex":
-                            pip_value = 10
-                            lots = risk_amount / (stop_distance / 0.0001 * pip_value)
-                            result.recommendedSize = f"{lots:.2f} lots"
-                        elif asset_type == "gold":
-                            contracts = risk_amount / (stop_distance * 100)
-                            result.recommendedSize = f"{contracts:.2f} contracts"
-                        elif asset_type == "crypto":
-                            coins = risk_amount / stop_distance
-                            result.recommendedSize = f"{coins:.4f} units"
-                        elif asset_type == "stock":
-                            shares = risk_amount / stop_distance
-                            result.recommendedSize = f"{int(shares)} shares"
-                        elif asset_type == "indices":
-                            units = risk_amount / stop_distance
-                            result.recommendedSize = f"{units:.2f} contracts"
-                        else:
-                            units = risk_amount / stop_distance
-                            result.recommendedSize = f"{units:.2f} units"
-
-                    results.append(result)
-                except Exception as json_err:
-                    print(f"⚠️ Skipping {strategy} - JSON parse error: {json_err}")
-                    continue
-            else:
-                print(f"⚠️ Skipping {strategy} - No valid JSON object found")
+            if not match:
                 continue
-
+            json_data = json.loads(match.group())
+            json_data["strategy"] = strategy
+            json_data["assetType"] = meta["assetType"]
+            if "entry" in json_data and "stopLoss" in json_data:
+                json_data["recommendedSize"] = calculate_recommended_size(
+                    json_data["entry"], json_data["stopLoss"], portfolioSize, riskTolerance, meta
+                )
+            results.append(StrategyResult(**json_data))
         except Exception as e:
-            print(f"⚠️ Error during {strategy} analysis: {str(e)}")
+            print(f"Error in {strategy}: {e}")
             continue
 
     super_trade = False
