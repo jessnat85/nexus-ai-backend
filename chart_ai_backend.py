@@ -379,60 +379,57 @@ async def analyze_chart(
         save_to_db(r, fallback_symbol or symbol_meta.get("symbol", ""), userId, super_trade, top_pick)
 
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
-    
-def generate_prompt(strategy: str) -> str:
+    def generate_prompt(strategy: str) -> str:
     strategy_prompts = {
         "SMC": "You are a professional trading assistant specialized in Smart Money Concepts (SMC).\n\nInstructions:\n1. Identify market structure (HH, LL), BOS, CHoCH, valid OBs, liquidity sweeps, and FVGs.\n2. Only generate a trade if BOS is followed by a valid OB and liquidity sweep.\n3. Include TP1 based on nearby imbalance resolution, and TP2 based on extended structure targets if logical.\n4. Clearly explain why TP2 is justified or omitted.",
 
-        "Breakout": "You are a breakout strategy analyst.\n\nInstructions:\n1. Identify consolidation zones (tight range, 3+ candles).\n2. Detect breakout direction with volume/momentum and valid retest or continuation.\n3. TP1 should be the measured move or breakout projection; TP2 if a clean extended move is likely.\n4. Explain trade logic with respect to structure and projection.",
+        "Breakout": "You are a breakout strategy analyst.\n\nInstructions:\n1. Identify consolidation zones (tight range, 3+ candles).\n2. Detect breakout direction with volume/momentum and valid retest or continuation.\n3. TP1 = measured move or breakout projection; TP2 = extended move if momentum allows.\n4. Explain trade logic with respect to structure and projection.",
 
         "Fibonacci": "You are a trading assistant specialized in Fibonacci-based analysis.\n\nInstructions:\n1. Detect swing high/low, draw retracement zones (0.618, 0.5, 0.382).\n2. Confirm reaction with candle patterns and trend.\n3. TP1 = prior high/low or structure level; TP2 = 1.272 or 1.618 extension.\n4. If only TP1 is safe, leave TP2 null.",
 
-        "PriceAction": "You are a trading assistant focused on price action setups.\n\nInstructions:\n1. Detect candlestick patterns (engulfing, pin bar, inside bar) at key S/R or structure levels.\n2. Confirm with confluence or trend.\n3. TP1 = first opposing structure; TP2 = next major level or range extreme if price momentum supports it.",
+        "PriceAction": "You are a trading assistant focused on price action setups.\n\nInstructions:\n1. Detect candlestick patterns (engulfing, pin bar, inside bar) at key S/R or structure levels.\n2. Confirm with confluence or trend.\n3. TP1 = first opposing structure; TP2 = next major level if momentum supports.",
 
         "Reversal": "You are a reversal expert.\n\nInstructions:\n1. Detect extended trend followed by reversal pattern (double top/bottom, divergence, H&S).\n2. TP1 = minor reversal target; TP2 = full counter-trend move if reversal is strong.\n3. Explain any weaknesses if TP2 is uncertain.",
 
-        "Trendline": "You are a trendline analysis specialist.\n\nInstructions:\n1. Identify 2+ touches trendline.\n2. Detect bounce or breakout with confirmation.\n3. TP1 = prior minor high/low or measured move; TP2 = next structural target.\n4. Skip TP2 if price has no space to move cleanly.",
+        "Trendline": "You are a trendline analysis specialist.\n\nInstructions:\n1. Identify 2+ touches trendline.\n2. Detect bounce or breakout with confirmation.\n3. TP1 = prior high/low or measured move; TP2 = next structural target.\n4. Omit TP2 if no space for clean continuation.",
 
-        "LiquiditySweep": "You specialize in liquidity grabs.\n\nInstructions:\n1. Find equal highs/lows, stop clusters.\n2. Confirm sweep + reversal structure.\n3. TP1 = post-sweep structural target; TP2 = extended run if impulsive move follows sweep.\n4. TP2 only if risk-reward remains favorable after TP1.",
+        "LiquiditySweep": "You specialize in liquidity grabs.\n\nInstructions:\n1. Find equal highs/lows, stop clusters.\n2. Confirm sweep + reversal structure.\n3. TP1 = post-sweep structure; TP2 = extended impulse target.\n4. TP2 only if RR remains favorable.",
 
-        "SupportResistance": "You are a trading assistant specialized in support and resistance trading strategies.\n\nInstructions:\n1. Identify recent key horizontal levels where price reacted at least twice — these include classic support/resistance zones and pivot levels (P, R1-R3, S1-S3).\n2. Calculate pivot points using recent price action: P = (High + Low + Close)/3. Then derive R1, R2, R3 and S1, S2, S3 accordingly.\n3. Analyze if price recently bounced from, rejected, or broke one of those levels.\n4. Confirm the setup using a strong candle signal or momentum (e.g., engulfing, pin bar, breakout candle).\n5. TP1 = nearest recent high/low or small range expansion. TP2 = full range expansion or next pivot level.\n6. Ensure logical SL and TP based on structure.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid trade near support, resistance, or pivot levels.\"}",
+        "SupportResistance": "You are a trading assistant specialized in support and resistance trading.\n\nInstructions:\n1. Identify key horizontal zones with 2+ reactions — include pivot levels (P, R1-R3, S1-S3).\n2. Calculate pivot points using: P = (High + Low + Close)/3. Derive R1-R3 and S1-S3.\n3. Confirm bounce, rejection or breakout.\n4. Use strong candle confirmation (engulfing, pin bar, breakout candle).\n5. TP1 = recent high/low or small expansion. TP2 = full range or next pivot.\n6. SL and TPs must be logical structurally.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid trade near support, resistance, or pivot levels.\"}",
 
-        "Scalping": "You are analyzing for high-frequency scalping setups on low timeframes (5m, 2m, 1m).\n\nInstructions:\n1. Focus on micro price reactions at key levels (e.g., order blocks, VWAP, EMAs, round numbers, previous highs/lows, and intraday pivot levels).\n2. Detect quick rejection patterns like small engulfing candles, pin bars, or inside bar breakouts — especially near structure or S/R.\n3. Look for volume/momentum bursts, fast wicks, or imbalance zones suggesting liquidity grabs.\n4. Confirm setup with market structure (e.g., BOS, CHoCH) or rapid price flip.\n5. Entry should offer a tight stop-loss (SL) and fast TP1 (e.g., 1.2–1.5 RR within 3–6 candles max). TP2 can be a larger structure expansion if momentum continues.\n6. Annotate if setup is best suited for 1m, 2m, or 5m timeframe based on candle formation density and structure.\n\nIf no suitable setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No fast-reacting scalping setup detected on current price structure.\"}",
+        "Scalping": "You are analyzing high-frequency scalping setups on low timeframes (5m, 2m, 1m).\n\nInstructions:\n1. Focus on micro reactions near OBs, VWAP, EMAs, round numbers, and pivots.\n2. Confirm with fast rejection patterns (engulfing, pin bar, inside bar) and volume bursts.\n3. Look for BOS, CHoCH, or price flip.\n4. TP1 = 1.2–1.5 RR target within 3–6 candles. TP2 = structural extension if momentum continues.\n5. Annotate preferred timeframe based on pattern density.\n\nIf no setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No fast-reacting scalping setup detected on current price structure.\"}",
 
-        "SupplyDemand": "You are a supply/demand analyst.\n\nInstructions:\n1. Detect fresh rally-base-drop or drop-base-rally zones.\n2. Confirm price return with rejection.\n3. TP1 = origin of imbalance; TP2 = next demand/supply zone if clear continuation exists.\n4. Omit TP2 if structure is messy.",
+        "SupplyDemand": "You are a supply/demand analyst.\n\nInstructions:\n1. Identify fresh rally-base-drop or drop-base-rally zones.\n2. Confirm price return and rejection.\n3. TP1 = origin of imbalance; TP2 = next demand/supply zone if continuation is clean.\n4. Skip TP2 if messy structure.",
 
-        "NexusPulse": "You are a general assistant offering guidance when no strategy fits cleanly.\n\nInstructions:\n1. Analyze trend, price structure, volatility, and S/R.\n2. Provide TP1 = safest conservative target.\n3. Suggest TP2 only if there's logic for further move.\n4. Be clear in commentary if confidence or targets are soft."
+        "NexusPulse": "You are a general market assistant when no specific strategy applies.\n\nInstructions:\n1. Analyze trend, volatility, structure, and S/R.\n2. TP1 = safest conservative target.\n3. TP2 only if clear projection is visible.\n4. Clarify confidence level and setup logic."
     }
-
-    return strategy_prompts.get(strategy, "")
 
     fallback = (
         "\n\nIf no valid setup is found with strict criteria, slightly relax the conditions "
         "and attempt to generate the best possible trade idea. Use a confidence score between 60 and 70 "
         "and clearly explain any uncertainty or weakness in the commentary."
-        "\n\nIf the market structure allows, provide two take profits:\n"
+        "\n\nIf the structure allows, include:\n"
         "- TP1 (conservative target)\n"
-        "- TP2 (extended/projection target)\n"
-        "If only one TP1 makes sense, set TP2 to null or omit it."
+        "- TP2 (projected continuation target)\n"
+        "If only TP1 is safe, set TP2 to null or omit."
     )
 
     schema = (
-        "\n\nRespond only with a JSON object using this exact schema:\n"
+        "\n\nRespond only with a JSON object using this schema:\n"
         "{\n"
         f"  \"strategy\": \"{strategy}\",\n"
         "  \"signal\": \"Buy or Sell\",\n"
         "  \"bias\": \"Bullish or Bearish\",\n"
-        "  \"pattern\": \"Describe the key pattern you used\",\n"
+        "  \"pattern\": \"Describe the key pattern\",\n"
         "  \"entry\": float,\n"
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
         "  \"takeProfit2\": float (optional),\n"
         "  \"confidence\": float (0 to 100),\n"
         "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
-        "  \"commentary\": \"Detailed explanation using logic, structure, risk-reward, confluence.\"\n"
+        "  \"commentary\": \"Detailed explanation using logic, structure, RR, and confluence.\"\n"
         "}\n"
-        "⚠️ Return only a single flat JSON object. Do not return any text before or after."
+        "⚠️ Only return a flat JSON object. Do NOT add text before or after."
     )
 
     prompt_intro = strategy_prompts.get(strategy, "You are a trading assistant.")
