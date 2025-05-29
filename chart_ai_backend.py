@@ -382,33 +382,37 @@ async def analyze_chart(
     
 def generate_prompt(strategy: str) -> str:
     strategy_prompts = {
-        "SMC": "You are a professional trading assistant specialized in Smart Money Concepts (SMC).\n\nInstructions:\n1. Identify market structure (Higher Highs, Lower Lows), Break of Structure (BOS), Change of Character (CHoCH), valid Order Blocks (OBs), liquidity sweeps, and Fair Value Gaps (FVG).\n2. Determine if a valid SMC setup exists.\n3. Only generate a trade if BOS is followed by a valid OB and liquidity sweep.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid SMC setup found.\"}",
+        "SMC": "You are a professional trading assistant specialized in Smart Money Concepts (SMC).\n\nInstructions:\n1. Identify market structure (HH, LL), BOS, CHoCH, valid OBs, liquidity sweeps, and FVGs.\n2. Only generate a trade if BOS is followed by a valid OB and liquidity sweep.\n3. Include TP1 based on nearby imbalance resolution, and TP2 based on extended structure targets if logical.\n4. Clearly explain why TP2 is justified or omitted."
+        
+        "Breakout": "You are a breakout strategy analyst.\n\nInstructions:\n1. Identify consolidation zones (tight range, 3+ candles).\n2. Detect breakout direction with volume/momentum and valid retest or continuation.\n3. TP1 should be the measured move or breakout projection; TP2 if a clean extended move is likely.\n4. Explain trade logic with respect to structure and projection."
+        
+        "Fibonacci": "You are a trading assistant specialized in Fibonacci-based analysis.\n\nInstructions:\n1. Detect swing high/low, draw retracement zones (0.618, 0.5, 0.382).\n2. Confirm reaction with candle patterns and trend.\n3. TP1 = prior high/low or structure level; TP2 = 1.272 or 1.618 extension.\n4. If only TP1 is safe, leave TP2 null."
 
-        "Breakout": "You are a breakout strategy analyst.\n\nInstructions:\n1. Identify consolidation zones (tight range, 3+ candles).\n2. Detect breakout candles with volume or momentum.\n3. Determine breakout direction and whether there's a valid retest.\n\nOnly suggest trades with breakout + retest or momentum continuation. If none, return:\n{\"superTrade\": false, \"commentary\": \"No valid breakout pattern found.\"}",
+        "PriceAction": "You are a trading assistant focused on price action setups.\n\nInstructions:\n1. Detect candlestick patterns (engulfing, pin bar, inside bar) at key S/R or structure levels.\n2. Confirm with confluence or trend.\n3. TP1 = first opposing structure; TP2 = next major level or range extreme if price momentum supports it."
+        
+        "Reversal": "You are a reversal expert.\n\nInstructions:\n1. Detect extended trend followed by reversal pattern (double top/bottom, divergence, H&S).\n2. TP1 = minor reversal target; TP2 = full counter-trend move if reversal is strong.\n3. Explain any weaknesses if TP2 is uncertain."
 
-        "Fibonacci": "You are a trading assistant specialized in Fibonacci-based analysis.\n\nInstructions:\n1. Detect the swing high and swing low.\n2. Draw Fibonacci retracement zones (0.618, 0.5, 0.382).\n3. Check for price reaction (e.g., rejection wick or engulfing).\n4. Confirm with trend for confluence.\n\nIf no valid reaction, return:\n{\"superTrade\": false, \"commentary\": \"No valid Fibonacci reaction found.\"}",
+        "Trendline": "You are a trendline analysis specialist.\n\nInstructions:\n1. Identify 2+ touches trendline.\n2. Detect bounce or breakout with confirmation.\n3. TP1 = prior minor high/low or measured move; TP2 = next structural target.\n4. Skip TP2 if price has no space to move cleanly."
 
-        "PriceAction": "You are a professional trading assistant focused on price action setups.\n\nInstructions:\n1. Look for candlestick patterns like engulfing, pin bars, inside bars.\n2. Confirm at key levels with structure or S/R confluence.\n\nIf valid setup appears, return trade. Else, return:\n{\"superTrade\": false, \"commentary\": \"No strong price action signal detected.\"}",
+        "LiquiditySweep": "You specialize in liquidity grabs.\n\nInstructions:\n1. Find equal highs/lows, stop clusters.\n2. Confirm sweep + reversal structure.\n3. TP1 = post-sweep structural target; TP2 = extended run if impulsive move follows sweep.\n4. TP2 only if risk-reward remains favorable after TP1."
 
-        "Reversal": "You are an expert in identifying market reversal setups.\n\nInstructions:\n1. Look for extended trends (3+ candles in one direction).\n2. Find patterns like double tops/bottoms, head & shoulders, divergence.\n3. Confirm with rejection or engulfing candles.\n\nIf reversal structure is not clear, return:\n{\"superTrade\": false, \"commentary\": \"No strong reversal structure observed.\"}",
+        "SupportResistance": "You are a trading assistant specialized in support and resistance trading strategies.\n\nInstructions:\n1. Identify recent key horizontal levels where price reacted at least twice — these include classic support/resistance zones and pivot levels (P, R1-R3, S1-S3).\n2. Calculate pivot points using recent price action: P = (High + Low + Close)/3. Then derive R1, R2, R3 and S1, S2, S3 accordingly.\n3. Analyze if price recently bounced from, rejected, or broke one of those levels.\n4. Confirm the setup using a strong candle signal or momentum (e.g., engulfing, pin bar, breakout candle).\n5. TP1 = nearest recent high/low or small range expansion. TP2 = full range expansion or next pivot level.\n6. Ensure logical SL and TP based on structure.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid trade near support, resistance, or pivot levels.\"}"
 
-        "Trendline": "You specialize in analyzing trendlines.\n\nInstructions:\n1. Identify upward or downward sloping trendlines with 2+ touches.\n2. Check for bounce or breakout from trendline.\n3. Confirm with strong close or volume spike.\n\nIf none found, return:\n{\"superTrade\": false, \"commentary\": \"No valid trendline break or bounce identified.\"}",
+        "Scalping": "You are analyzing for rapid, small RR setups.\n\nInstructions:\n1. Identify micro reactions at zones with tight stop.\n2. TP1 = nearby bounce or minor S/R level.\n3. TP2 only if continuation is logical (rare for scalping).\n4. Prefer TP1 only unless momentum is very strong."
 
-        "LiquiditySweep": "You specialize in liquidity hunts and sweeps.\n\nInstructions:\n1. Look for equal highs/lows or stop clusters.\n2. Check if price swept those zones and reversed.\n3. Confirm with structure shift or reversal candle.\n4. Ensure the trade is still valid — not too late to enter after the sweep.\n\nIf no confirmation follows sweep, or entry is too late, return:\n{\"superTrade\": false, \"commentary\": \"No valid liquidity grab setup available.\"}",
+        "SupplyDemand": "You are a supply/demand analyst.\n\nInstructions:\n1. Detect fresh rally-base-drop or drop-base-rally zones.\n2. Confirm price return with rejection.\n3. TP1 = origin of imbalance; TP2 = next demand/supply zone if clear continuation exists.\n4. Omit TP2 if structure is messy."
 
-        "SupportResistance": "You are a trading assistant specialized in support and resistance trading strategies.\n\nInstructions:\n1. Identify recent key horizontal levels where price reacted at least twice.\n2. Analyze if price recently bounced from, rejected, or broke one of those levels.\n3. Confirm the setup using a strong candle signal or momentum.\n4. Ensure logical SL and TP based on structure.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid trade near support/resistance.\"}",
-
-        "Scalping": "You are analyzing for fast, low-risk scalping trades.\n\nInstructions:\n1. Look for micro price reactions at key zones.\n2. Confirm with candle patterns or fast rejection.\n3. Entry should have tight SL and fast TP (<1.5x RR).\n\nIf no suitable setup, return:\n{\"superTrade\": false, \"commentary\": \"No suitable scalping setup available.\"}",
-
-        "SupplyDemand": "You are a trading assistant specialized in Supply and Demand analysis.\n\nInstructions:\n1. Identify clear supply (rally-base-drop) and demand (drop-base-rally) zones.\n2. Focus on zones with strong imbalance followed by a large move.\n3. Confirm the zone is fresh and check for price return with a rejection pattern.\n\nIf no reaction or fresh zone exists, return:\n{\"superTrade\": false, \"commentary\": \"No strong reaction at any supply or demand zone.\"}",
-
-        "NexusPulse": "You are a general trading assistant providing high-level insight when no specific strategy applies.\n\nInstructions:\n1. Analyze trend, price structure (HH/HL or LL/LH), support/resistance, and recent volatility.\n2. Identify if the market is trending, ranging, or reversing.\n3. Offer a possible trade setup if there's logic (entry, SL, TP, bias), even if confluence is low.\n4. Clearly communicate uncertainty or market caution if applicable.\n\nUse looser thresholds and provide broader guidance.\nIf absolutely no trade idea is viable, return:\n{\"commentary\": \"No reasonable trade idea found given current market conditions.\"}"
+        "NexusPulse": "You are a general assistant offering guidance when no strategy fits cleanly.\n\nInstructions:\n1. Analyze trend, price structure, volatility, and S/R.\n2. Provide TP1 = safest conservative target.\n3. Suggest TP2 only if there's logic for further move.\n4. Be clear in commentary if confidence or targets are soft."
     }
 
     fallback = (
         "\n\nIf no valid setup is found with strict criteria, slightly relax the conditions "
         "and attempt to generate the best possible trade idea. Use a confidence score between 60 and 70 "
         "and clearly explain any uncertainty or weakness in the commentary."
+        "\n\nIf the market structure allows, provide two take profits:\n"
+        "- TP1 (conservative target)\n"
+        "- TP2 (extended/projection target)\n"
+        "If only one TP makes sense, set TP2 to null or omit it."
     )
 
     schema = (
