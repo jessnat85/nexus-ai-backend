@@ -294,7 +294,7 @@ async def analyze_chart(
     file: UploadFile = File(...),
     portfolioSize: float = Form(10000),
     riskTolerance: str = Form("moderate"),
-    userId: str = Form(...)
+    userId: str = Form(...),
     tradeStyle: str = Form("Intraday"),
 ):
     image = Image.open(io.BytesIO(await file.read()))
