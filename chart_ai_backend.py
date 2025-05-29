@@ -52,6 +52,7 @@ class TradeResult(Base):
     entry = Column(Float)
     stopLoss = Column(Float)
     takeProfit = Column(Float)
+    takeProfit2 = Column(Float, nullable=True)              # <-- TP2 added
     confidence = Column(Float)
     tradeType = Column(String)
     recommendedSize = Column(String)
@@ -84,6 +85,7 @@ class StrategyResult(BaseModel):
     entry: float
     stopLoss: float
     takeProfit: float
+    takeProfit2: float | None = None                        # <-- TP2 optional
     confidence: float
     commentary: str
     tradeType: str
@@ -149,6 +151,7 @@ def save_to_db(res: StrategyResult, symbol: str, user: str, super_t: bool, top: 
             entry=res.entry,
             stopLoss=res.stopLoss,
             takeProfit=res.takeProfit,
+            takeProfit2=res.takeProfit2,
             confidence=res.confidence,
             tradeType=res.tradeType,
             recommendedSize=res.recommendedSize,
@@ -160,12 +163,10 @@ def save_to_db(res: StrategyResult, symbol: str, user: str, super_t: bool, top: 
     )
     db.commit()
     db.close()
-
-
 def generate_prompt(strategy: str) -> str:
     return (
         f"You are an AI trading assistant. Provide a trade idea for {strategy} strategy as JSON with keys: "
-        "signal, bias, pattern, entry, stopLoss, takeProfit, confidence, tradeType, commentary."
+        "signal, bias, pattern, entry, stopLoss, takeProfit, takeProfit2, confidence, tradeType, commentary."
     )
 
 
@@ -281,8 +282,10 @@ def get_history(user_id: str):
         .all()
     )
     db.close()
+
     def model_to_dict(obj):
         return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+
     return [model_to_dict(t) for t in trades]
 
 
@@ -290,7 +293,8 @@ def get_history(user_id: str):
 async def analyze_chart(
     file: UploadFile = File(...),
     portfolioSize: float = Form(10000),
-    riskTolerance: str = Form("moderate")
+    riskTolerance: str = Form("moderate"),
+    userId: str = Form(...)
 ):
     image = Image.open(io.BytesIO(await file.read()))
     buffered = io.BytesIO()
@@ -338,7 +342,10 @@ async def analyze_chart(
                 json_data["recommendedSize"] = calculate_recommended_size(
                     json_data["entry"], json_data["stopLoss"], portfolioSize, riskTolerance, meta
                 )
-            results.append(StrategyResult(**json_data))
+            # Optional takeProfit2
+            json_data["takeProfit2"] = json_data.get("takeProfit2")
+            result = StrategyResult(**json_data)
+            results.append(result)
         except Exception as e:
             print(f"Error in {strategy}: {e}")
             continue
@@ -348,8 +355,8 @@ async def analyze_chart(
     conflict_commentary = None
 
     if len(results) >= 3:
-        buy_signals = [r for r in results if r.signal == "Buy"]
-        sell_signals = [r for r in results if r.signal == "Sell"]
+        buy_signals = [r for r in results if r.signal.lower() == "buy"]
+        sell_signals = [r for r in results if r.signal.lower() == "sell"]
 
         def check_confluence(group):
             if len(group) < 3:
@@ -365,11 +372,14 @@ async def analyze_chart(
     if results:
         top_pick = max(results, key=lambda r: (r.confidence, (r.takeProfit - r.entry) / max(0.01, abs(r.entry - r.stopLoss))))
 
-    if any(r.signal != top_pick.signal for r in results):
+    if top_pick and any(r.signal != top_pick.signal for r in results):
         conflict_commentary = "⚠️ Conflicting trade signals detected. Strategies are not fully aligned. Proceed with caution."
 
-    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
+    for r in results:
+        save_to_db(r, fallback_symbol or symbol_meta.get("symbol", ""), userId, super_trade, top_pick)
 
+    return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
+    
 def generate_prompt(strategy: str) -> str:
     strategy_prompts = {
         "SMC": "You are a professional trading assistant specialized in Smart Money Concepts (SMC).\n\nInstructions:\n1. Identify market structure (Higher Highs, Lower Lows), Break of Structure (BOS), Change of Character (CHoCH), valid Order Blocks (OBs), liquidity sweeps, and Fair Value Gaps (FVG).\n2. Determine if a valid SMC setup exists.\n3. Only generate a trade if BOS is followed by a valid OB and liquidity sweep.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid SMC setup found.\"}",
@@ -384,9 +394,9 @@ def generate_prompt(strategy: str) -> str:
 
         "Trendline": "You specialize in analyzing trendlines.\n\nInstructions:\n1. Identify upward or downward sloping trendlines with 2+ touches.\n2. Check for bounce or breakout from trendline.\n3. Confirm with strong close or volume spike.\n\nIf none found, return:\n{\"superTrade\": false, \"commentary\": \"No valid trendline break or bounce identified.\"}",
 
-        "LiquiditySweep": "You specialize in liquidity hunts and sweeps.\n\nInstructions:\n1. Look for equal highs/lows or stop clusters.\n2. Check if price swept those zones and reversed.\n3. Confirm with structure shift or reversal candle.\n\nIf no confirmation follows sweep, return:\n{\"superTrade\": false, \"commentary\": \"No liquidity grab followed by confirmation.\"}",
+        "LiquiditySweep": "You specialize in liquidity hunts and sweeps.\n\nInstructions:\n1. Look for equal highs/lows or stop clusters.\n2. Check if price swept those zones and reversed.\n3. Confirm with structure shift or reversal candle.\n4. Ensure the trade is still valid — not too late to enter after the sweep.\n\nIf no confirmation follows sweep, or entry is too late, return:\n{\"superTrade\": false, \"commentary\": \"No valid liquidity grab setup available.\"}",
 
-        "SupportResistance": "You are a trading assistant specialized in support and resistance trading strategies.\n\nInstructions:\n1. Identify recent key horizontal levels where price reacted at least twice (support or resistance).\n2. Analyze if price recently bounced from, rejected, or broke one of those levels.\n3. Confirm the setup using a strong candle signal (e.g., engulfing, pin bar) or clear market momentum.\n4. Ensure the trade setup has logical stop loss and take profit based on structure.\n\nOnly generate a trade setup if:\n- A support or resistance level was tested or rejected.\n- There is a confirmation candle or breakout structure.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid trade near support/resistance.\"}",
+        "SupportResistance": "You are a trading assistant specialized in support and resistance trading strategies.\n\nInstructions:\n1. Identify recent key horizontal levels where price reacted at least twice.\n2. Analyze if price recently bounced from, rejected, or broke one of those levels.\n3. Confirm the setup using a strong candle signal or momentum.\n4. Ensure logical SL and TP based on structure.\n\nIf no valid setup exists, return:\n{\"superTrade\": false, \"commentary\": \"No valid trade near support/resistance.\"}",
 
         "Scalping": "You are analyzing for fast, low-risk scalping trades.\n\nInstructions:\n1. Look for micro price reactions at key zones.\n2. Confirm with candle patterns or fast rejection.\n3. Entry should have tight SL and fast TP (<1.5x RR).\n\nIf no suitable setup, return:\n{\"superTrade\": false, \"commentary\": \"No suitable scalping setup available.\"}",
 
@@ -411,32 +421,7 @@ def generate_prompt(strategy: str) -> str:
         "  \"entry\": float,\n"
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
-        "  \"confidence\": float (0 to 100),\n"
-        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
-        "  \"commentary\": \"Detailed explanation using logic, structure, risk-reward, confluence.\"\n"
-        "}\n"
-        "⚠️ Return only a single flat JSON object. Do not return any text before or after."
-    )
-
-    prompt_intro = strategy_prompts.get(strategy, "You are a trading assistant.")
-    return prompt_intro + fallback + schema
-
-    fallback = (
-        "\n\nIf no valid setup is found with strict criteria, slightly relax the conditions "
-        "and attempt to generate the best possible trade idea. Use a confidence score between 60 and 70 "
-        "and clearly explain any uncertainty or weakness in the commentary."
-    )
-
-    schema = (
-        "\n\nRespond only with a JSON object using this exact schema:\n"
-        "{\n"
-        f"  \"strategy\": \"{strategy}\",\n"
-        "  \"signal\": \"Buy or Sell\",\n"
-        "  \"bias\": \"Bullish or Bearish\",\n"
-        "  \"pattern\": \"Describe the key pattern you used\",\n"
-        "  \"entry\": float,\n"
-        "  \"stopLoss\": float,\n"
-        "  \"takeProfit\": float,\n"
+        "  \"takeProfit2\": float (optional),\n"
         "  \"confidence\": float (0 to 100),\n"
         "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
         "  \"commentary\": \"Detailed explanation using logic, structure, risk-reward, confluence.\"\n"
