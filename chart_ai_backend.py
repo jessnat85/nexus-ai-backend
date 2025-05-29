@@ -414,7 +414,7 @@ def generate_prompt(strategy: str) -> str:
         "\n\nIf the market structure allows, provide two take profits:\n"
         "- TP1 (conservative target)\n"
         "- TP2 (extended/projection target)\n"
-        "If only one TP makes sense, set TP2 to null or omit it."
+        "If only one TP1 makes sense, set TP2 to null or omit it."
     )
 
     schema = (
