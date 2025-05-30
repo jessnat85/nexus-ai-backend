@@ -324,8 +324,8 @@ async def analyze_chart(
     if top_pick and any(r.signal != top_pick.signal for r in results):
         conflict_commentary = "⚠️ Conflicting trade signals detected. Strategies are not fully aligned. Proceed with caution."
 
-    for r in results:
-        save_to_db(r, fallback_symbol or symbol_meta.get("symbol", ""), userId, super_trade, top_pick)
+    if top_pick:
+        save_to_db(top_pick, fallback_symbol or symbol_meta.get("symbol", ""), userId, super_trade, top_pick)
 
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
     
