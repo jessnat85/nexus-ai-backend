@@ -212,12 +212,12 @@ def generate_prompt(strategy: str, tradeStyle: str = "Intraday") -> str:
 
 
 def check_confluence(group: list[StrategyResult]) -> bool:
-    if len(group) < 3:
+    if len(group) < 2:
         return False
-    avg_conf = sum(r.confidence for r in group) / len(group)
     same_bias = all(r.bias == group[0].bias for r in group)
-    rr_ok = all(((r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)) >= 1.5 for r in group)
-    return avg_conf >= 78 and same_bias and rr_ok
+    same_signal = all(r.signal == group[0].signal for r in group)
+    entry_range_ok = max(r.entry for r in group) - min(r.entry for r in group) <= 0.015 * sum(r.entry for r in group) / len(group)
+    return same_bias and same_signal and entry_range_ok
 
 
 
@@ -287,6 +287,7 @@ async def analyze_chart(
                 continue
             json_data = json.loads(match.group())
             json_data["strategy"] = strategy
+            json_data["commentary"] = f"(Structure observed on {tradeStyle} timeframe.) " + json_data["commentary"]
             json_data["assetType"] = meta["assetType"]
             if "entry" in json_data and "stopLoss" in json_data:
                 json_data["recommendedSize"] = calculate_recommended_size(
@@ -294,6 +295,16 @@ async def analyze_chart(
                 )
             # Optional takeProfit2
             json_data["takeProfit2"] = json_data.get("takeProfit2")
+            # Insert confidence/rr/tradeStyle logic after confidence is set
+            if "confidence" in json_data and "takeProfit" in json_data and "entry" in json_data and "stopLoss" in json_data:
+                rr = (json_data["takeProfit"] - json_data["entry"]) / max(0.01, abs(json_data["entry"] - json_data["stopLoss"]))
+                if rr >= 2.0:
+                    json_data["confidence"] += 5
+                if tradeStyle == "Scalp" and strategy in ["Scalping", "LiquiditySweep", "Trendline"]:
+                    json_data["confidence"] += 5
+                json_data["confidence"] = min(100, max(50, json_data["confidence"]))
+                if json_data["confidence"] > 75:
+                    json_data["commentary"] += " ⚡ High-probability setup detected."
             result = StrategyResult(**json_data)
             results.append(result)
         except Exception as e:
@@ -308,15 +319,9 @@ async def analyze_chart(
         buy_signals = [r for r in results if r.signal.lower() == "buy"]
         sell_signals = [r for r in results if r.signal.lower() == "sell"]
 
-        def check_confluence(group):
-            if len(group) < 3:
-                return False
-            avg_conf = sum(r.confidence for r in group) / len(group)
-            same_bias = all(r.bias == group[0].bias for r in group)
-            rr_ok = all(((r.takeProfit - r.entry) / abs(r.entry - r.stopLoss)) >= 1.5 for r in group)
-            return avg_conf >= 78 and same_bias and rr_ok
-
-        if check_confluence(buy_signals) or check_confluence(sell_signals):
+        if check_confluence(buy_signals):
+            super_trade = True
+        elif check_confluence(sell_signals):
             super_trade = True
 
     if results:
