@@ -99,6 +99,11 @@ class FullAnalysis(BaseModel):
     topPick: StrategyResult | None
     conflictCommentary: str | None = None
 
+# --- ClarifyRequest model ---
+class ClarifyRequest(BaseModel):
+    trade: StrategyResult
+    question: str
+
 
 def detect_symbol_and_metadata(image_b64: str) -> dict:
     prompt = "You're an AI that reads trading charts. Extract symbol, asset type, point value, tick size, unit label in JSON."
@@ -310,8 +315,12 @@ async def analyze_chart(
                 json_data["confidence"] = min(100, max(50, json_data["confidence"]))
                 if json_data["confidence"] > 75:
                     json_data["commentary"] += " ⚡ High-probability setup detected."
-            result = StrategyResult(**json_data)
-            results.append(result)
+            # Only append if not a fallback/incomplete response
+            if json_data.get("signal") != "N/A" and json_data.get("entry", 0) > 0 and json_data.get("takeProfit", 0) > 0:
+                result = StrategyResult(**json_data)
+                results.append(result)
+            else:
+                print(f"Filtered out fallback or incomplete strategy: {strategy}")
         except Exception as e:
             print(f"Error in {strategy}: {e}")
             continue
@@ -339,4 +348,28 @@ async def analyze_chart(
         save_to_db(top_pick, fallback_symbol or symbol_meta.get("symbol", ""), userId, super_trade, top_pick)
 
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
+
+
+# --- Clarify endpoint ---
+from fastapi import Body
+
+@app.post("/clarify")
+async def clarify_trade(data: ClarifyRequest):
+    prompt = f"""You are a trading assistant helping clarify a trade setup. 
+Here is the strategy output:
+
+{json.dumps(data.trade.dict(), indent=2)}
+
+The user asks: "{data.question}"
+
+Provide a helpful, expert-level explanation that references the trade logic, confidence, entry, and price structure.
+"""
+
+    response = openai.chat.completions.create(
+        model="gpt-4o",
+        temperature=0.4,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    
+    return {"response": response.choices[0].message.content}
     
