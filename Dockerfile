@@ -8,5 +8,8 @@ WORKDIR /app
 COPY . /app
 RUN pip install -r requirements.txt
 
+# Add environment variables from .env file
+ENV $(cat .env | xargs)
+
 EXPOSE 10000
 CMD ["uvicorn", "chart_ai_backend:app", "--host", "0.0.0.0", "--port", "10000"]

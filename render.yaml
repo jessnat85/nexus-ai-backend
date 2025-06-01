@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: nexus-ai-backend
+    env: python
+    plan: free
+    buildCommand: |
+      apt-get update
+      apt-get install -y tesseract-ocr
+      pip install -r requirements.txt
+    startCommand: uvicorn chart_ai_backend:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: NEWSDATA_API_KEY
+        sync: false
