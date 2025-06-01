@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # <-- This loads the .env file into os.environ
 
 def test_env_variables():
     openai_key = os.getenv("OPENAI_API_KEY")
