@@ -4,10 +4,6 @@ import re
 import json
 import base64
 from datetime import datetime
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 import openai
 from fastapi import FastAPI, File, UploadFile, Form
@@ -167,6 +163,52 @@ def save_to_db(res: StrategyResult, symbol: str, user: str, super_t: bool, top: 
     )
     db.commit()
     db.close()
+def generate_prompt(strategy: str, tradeStyle: str = "Intraday") -> str:
+    strategy_prompts = {
+        "SMC": f"You are a professional trading assistant specialized in Smart Money Concepts (SMC). The user is currently looking for a {tradeStyle} setup. Tailor your structure analysis to the selected trade style:\n- For Scalping: Use 1m, 2m, 3m, 5m charts.\n- For Intraday: Use 5m, 15m, 30m, 1h charts.\n- For Swing: Use 1h, 4h, daily charts.\nAlways mention the specific timeframe(s) you used for structure or pattern detection in your commentary.\n\nInstructions:\n1. Identify market structure (HH, LL), BOS, CHoCH, valid OBs, liquidity sweeps, and FVGs.\n2. Only generate a trade if BOS is followed by a valid OB and liquidity sweep.\n3. Include TP1 based on nearby imbalance resolution, and TP2 based on extended structure targets if logical.\n4. Clearly explain why TP2 is justified or omitted.",
+        "Breakout": f"You are a breakout strategy analyst. The user is currently looking for a {tradeStyle} setup. Focus your analysis on 5m, 15m, 30m, or 1h charts for intraday trades; use 1m-5m for scalping; use 1h, 4h, or daily for swing. Clearly state which timeframe structure you are analyzing in your commentary.\n\nInstructions:\n1. Identify consolidation zones (tight range, 3+ candles).\n2. Detect breakout direction with volume/momentum and valid retest or continuation.\n3. TP1 should be the measured move or breakout projection; TP2 if a clean extended move is likely.\n4. Explain trade logic with respect to structure and projection.",
+        "Fibonacci": f"You are a trading assistant specialized in Fibonacci-based analysis. The user is currently looking for a {tradeStyle} setup. Use 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Indicate the timeframe where the swing or retracement is most visible in your commentary.\n\nInstructions:\n1. Detect swing high/low, draw retracement zones (0.618, 0.5, 0.382).\n2. Confirm reaction with candle patterns and trend.\n3. TP1 = prior high/low or structure level; TP2 = 1.272 or 1.618 extension.\n4. If only TP1 is safe, leave TP2 null.",
+        "PriceAction": f"You are a trading assistant focused on price action setups. The user is currently looking for a {tradeStyle} setup. Use 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Clearly mention the timeframe where the candlestick pattern or key level is detected in your commentary.\n\nInstructions:\n1. Detect candlestick patterns (engulfing, pin bar, inside bar) at key S/R or structure levels.\n2. Confirm with confluence or trend.\n3. TP1 = first opposing structure; TP2 = next major level or range extreme if price momentum supports it.",
+        "Reversal": f"You are a reversal expert. The user is currently looking for a {tradeStyle} setup. Focus your reversal analysis on 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Indicate the timeframe where the reversal pattern is most clearly visible in your commentary.\n\nInstructions:\n1. Detect extended trend followed by reversal pattern (double top/bottom, divergence, H&S).\n2. TP1 = minor reversal target; TP2 = full counter-trend move if reversal is strong.\n3. Explain any weaknesses if TP2 is uncertain.",
+        "Trendline": f"You are a trendline analysis specialist. The user is currently looking for a {tradeStyle} setup. Use 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Explicitly state the timeframe where the trendline is drawn or broken in your commentary.\n\nInstructions:\n1. Identify 2+ touches trendline.\n2. Detect bounce or breakout with confirmation.\n3. TP1 = prior minor high/low or measured move; TP2 = next structural target.\n4. Skip TP2 if price has no space to move cleanly.",
+        "LiquiditySweep": f"You specialize in liquidity grabs. The user is currently looking for a {tradeStyle} setup. Focus your sweep detection on 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Clearly mention the timeframe where the sweep and reversal occur in your commentary.\n\nInstructions:\n1. Find equal highs/lows, stop clusters.\n2. Confirm sweep + reversal structure.\n3. TP1 = post-sweep structural target; TP2 = extended run if impulsive move follows sweep.\n4. TP2 only if risk-reward remains favorable after TP1.",
+        "SupportResistance": f"You are a trading assistant specialized in support and resistance trading strategies. The user is currently looking for a {tradeStyle} setup. Focus your analysis on 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Always indicate the timeframe where the key level or pivot is most relevant in your commentary.\n\nInstructions:\n1. Identify recent key horizontal levels where price reacted at least twice — these include classic support/resistance zones and pivot levels (P, R1-R3, S1-S3).\n2. Calculate pivot points using recent price action: P = (High + Low + Close)/3. Then derive R1, R2, R3 and S1, S2, S3 accordingly.\n3. Analyze if price recently bounced from, rejected, or broke one of those levels.\n4. Confirm the setup using a strong candle signal or momentum (e.g., engulfing, pin bar, breakout candle).\n5. TP1 = nearest recent high/low or small range expansion. TP2 = full range expansion or next pivot level.\n6. Ensure logical SL and TP based on structure.\n\nIf no valid setup exists, return:\n{{\"superTrade\": false, \"commentary\": \"No valid trade near support, resistance, or pivot levels.\"}}",
+        "Scalping": f"You are analyzing for high-frequency scalping setups. The user is currently looking for a {tradeStyle} setup.\nUse the 1m, 2m, 3m, and 5m charts as your reference timeframes. Indicate the specific timeframe where the setup is visible in your commentary.\n\nInstructions:\n1. Focus on micro price reactions at key levels (e.g., order blocks, VWAP, EMAs, round numbers, previous highs/lows, and intraday pivot levels).\n2. Detect quick rejection patterns like small engulfing candles, pin bars, or inside bar breakouts — especially near structure or S/R.\n3. Look for volume/momentum bursts, fast wicks, or imbalance zones suggesting liquidity grabs.\n4. Confirm setup with market structure (e.g., BOS, CHoCH) or rapid price flip.\n5. Entry should offer a tight stop-loss (SL) and fast TP1 (e.g., 1.2–1.5 RR within 3–6 candles max). TP2 can be a larger structure expansion if momentum continues.\n6. Annotate if setup is best suited for 1m, 2m, 3m, or 5m timeframe based on candle formation density and structure.\n\nIf no suitable setup exists, return:\n{{\"superTrade\": false, \"commentary\": \"No fast-reacting scalping setup detected on current price structure.\"}}",
+        "SupplyDemand": f"You are a supply/demand analyst. The user is currently looking for a {tradeStyle} setup. Use 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Always specify the timeframe where the supply/demand zone is detected in your commentary.\n\nInstructions:\n1. Detect fresh rally-base-drop or drop-base-rally zones.\n2. Confirm price return with rejection.\n3. TP1 = origin of imbalance; TP2 = next demand/supply zone if clear continuation exists.\n4. Omit TP2 if structure is messy.",
+        "NexusPulse": f"You are a general assistant offering guidance when no strategy fits cleanly. The user is currently looking for a {tradeStyle} setup. Use 5m, 15m, 30m, or 1h charts for intraday; 1m-5m for scalping; 1h, 4h, or daily for swing. Always indicate the timeframe where the pattern is most clearly visible in your commentary.\n\nInstructions:\n1. Analyze trend, price structure, volatility, and S/R.\n2. Provide TP1 = safest conservative target.\n3. Suggest TP2 only if there's logic for further move.\n4. Be clear in commentary if confidence or targets are soft."
+    }
+
+    fallback = (
+        "\n\nIf no valid setup is found with strict criteria, slightly relax the conditions "
+        "and attempt to generate the best possible trade idea. Use a confidence score between 60 and 70 "
+        "and clearly explain any uncertainty or weakness in the commentary."
+        "\n\nAlways indicate the timeframe where the pattern is most clearly visible in your commentary."
+        "\n\nIf the market structure allows, provide two take profits:\n"
+        "- TP1 (conservative target)\n"
+        "- TP2 (extended/projection target)\n"
+        "If only one TP1 makes sense, set TP2 to null or omit it."
+    )
+
+    schema = (
+        "\n\nRespond only with a JSON object using this exact schema:\n"
+        "{\n"
+        f"  \"strategy\": \"{strategy}\",\n"
+        "  \"signal\": \"Buy or Sell\",\n"
+        "  \"bias\": \"Bullish or Bearish\",\n"
+        "  \"pattern\": \"Describe the key pattern you used\",\n"
+        "  \"entry\": float,\n"
+        "  \"stopLoss\": float,\n"
+        "  \"takeProfit\": float,\n"
+        "  \"takeProfit2\": float (optional),\n"
+        "  \"confidence\": float (0 to 100),\n"
+        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
+        "  \"commentary\": \"Detailed explanation using logic, structure, risk-reward, confluence.\"\n"
+        "}\n"
+        "⚠️ Return only a single flat JSON object. Do not return any text before or after."
+    )
+
+    prompt_intro = strategy_prompts.get(strategy, f"You are a trading assistant. The user is currently looking for a {tradeStyle} setup.")
+    return prompt_intro + fallback + schema
 
 
 def check_confluence(group: list[StrategyResult]) -> bool:
@@ -176,6 +218,7 @@ def check_confluence(group: list[StrategyResult]) -> bool:
     same_signal = all(r.signal == group[0].signal for r in group)
     entry_range_ok = max(r.entry for r in group) - min(r.entry for r in group) <= 0.015 * sum(r.entry for r in group) / len(group)
     return same_bias and same_signal and entry_range_ok
+
 
 
 @app.get("/history/{user_id}")
