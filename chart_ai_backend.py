@@ -179,30 +179,35 @@ def generate_prompt(strategy: str, tradeStyle: str = "Intraday") -> str:
     }
 
     fallback = (
-        "\n\nIf no valid setup is found with strict criteria, slightly relax the conditions "
-        "and attempt to generate the best possible trade idea. Use a confidence score between 60 and 70 "
-        "and clearly explain any uncertainty or weakness in the commentary."
-        "\n\nAlways indicate the timeframe where the pattern is most clearly visible in your commentary."
-        "\n\nIf the market structure allows, provide two take profits:\n"
-        "- TP1 (conservative target)\n"
-        "- TP2 (extended/projection target)\n"
-        "If only one TP1 makes sense, set TP2 to null or omit it."
+        "\n\nIf no valid setup is found with strict criteria, still respond with a full JSON object using 'N/A', 0, or null values where necessary."
+        "\n\nExample fallback values:\n"
+        "\"signal\": \"N/A\",\n"
+        "\"bias\": \"N/A\",\n"
+        "\"pattern\": \"No valid setup detected\",\n"
+        "\"entry\": 0,\n"
+        "\"stopLoss\": 0,\n"
+        "\"takeProfit\": 0,\n"
+        "\"takeProfit2\": null,\n"
+        "\"confidence\": 0,\n"
+        "\"tradeType\": \"N/A\",\n"
+        "\"commentary\": \"No setup found meeting the criteria.\"\n"
+        "\nReturn all fields exactly as shown in the schema even if no trade is detected."
     )
 
     schema = (
         "\n\nRespond only with a JSON object using this exact schema:\n"
         "{\n"
         f"  \"strategy\": \"{strategy}\",\n"
-        "  \"signal\": \"Buy or Sell\",\n"
-        "  \"bias\": \"Bullish or Bearish\",\n"
-        "  \"pattern\": \"Describe the key pattern you used\",\n"
+        "  \"signal\": \"Buy or Sell or N/A\",\n"
+        "  \"bias\": \"Bullish or Bearish or N/A\",\n"
+        "  \"pattern\": \"Describe the key pattern you used or say 'None'\",\n"
         "  \"entry\": float,\n"
         "  \"stopLoss\": float,\n"
         "  \"takeProfit\": float,\n"
-        "  \"takeProfit2\": float (optional),\n"
+        "  \"takeProfit2\": float (optional or null),\n"
         "  \"confidence\": float (0 to 100),\n"
-        "  \"tradeType\": \"Scalp, Intraday, or Swing\",\n"
-        "  \"commentary\": \"Detailed explanation using logic, structure, risk-reward, confluence.\"\n"
+        "  \"tradeType\": \"Scalp, Intraday, Swing, or N/A\",\n"
+        "  \"commentary\": \"Detailed explanation or reason for fallback.\"\n"
         "}\n"
         "⚠️ Return only a single flat JSON object. Do not return any text before or after."
     )
@@ -334,3 +339,4 @@ async def analyze_chart(
         save_to_db(top_pick, fallback_symbol or symbol_meta.get("symbol", ""), userId, super_trade, top_pick)
 
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
+    
