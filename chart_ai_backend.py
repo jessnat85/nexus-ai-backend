@@ -281,6 +281,8 @@ async def analyze_chart(
     for strategy in strategies:
         try:
             prompt = generate_prompt(strategy, tradeStyle)
+            if language != "en":
+                prompt = f"Translate the following prompt to {language.upper()} and then follow it:\n\n" + prompt
             response = openai.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.4,
