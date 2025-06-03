@@ -255,6 +255,8 @@ async def analyze_chart(
     riskTolerance: str = Form("moderate"),
     userId: str = Form(...),
     tradeStyle: str = Form("Intraday"),
+    assetType: str = Form("Forex"),
+    language: str = Form("en"),
 ):
     image = Image.open(io.BytesIO(await file.read()))
     buffered = io.BytesIO()
@@ -269,6 +271,8 @@ async def analyze_chart(
         "tickSize": symbol_meta.get("tickSize", 0.1),
         "unitLabel": symbol_meta.get("unitLabel", "units")
     })
+    if assetType != "Unknown":
+        meta["assetType"] = assetType
 
     strategies = ["SMC", "Breakout", "Fibonacci", "PriceAction", "Reversal",
                   "Trendline", "LiquiditySweep", "SupportResistance", "Scalping", "SupplyDemand", "NexusPulse"]
@@ -298,7 +302,7 @@ async def analyze_chart(
             json_data = json.loads(match.group())
             json_data["strategy"] = strategy
             json_data["commentary"] = f"(Structure observed on {tradeStyle} timeframe.) " + json_data["commentary"]
-            json_data["assetType"] = meta["assetType"]
+            json_data["assetType"] = assetType or meta["assetType"]
             if "entry" in json_data and "stopLoss" in json_data:
                 json_data["recommendedSize"] = calculate_recommended_size(
                     json_data["entry"], json_data["stopLoss"], portfolioSize, riskTolerance, meta
