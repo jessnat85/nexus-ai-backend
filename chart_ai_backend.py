@@ -359,26 +359,54 @@ async def analyze_chart(
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
 
 
-# --- Clarify endpoint ---
 from fastapi import Body
 
+# --- Clarify endpoint ---
 @app.post("/clarify")
 async def clarify_trade(data: ClarifyRequest):
-    prompt = f"""You are a trading assistant helping clarify a trade setup. 
-Here is the strategy output:
+    prompt = f"""
+    You are a trading assistant helping clarify a trade setup.
+    Here is the strategy output:
 
-{json.dumps(data.trade.dict(), indent=2)}
+    {json.dumps(data.trade.dict(), indent=2)}
 
-The user asks: "{data.question}"
+    The user asks: \"{data.question}\"
 
-Provide a helpful, expert-level explanation that references the trade logic, confidence, entry, and price structure.
-"""
+    Provide a helpful, expert-level explanation that references the trade logic, confidence, entry, and price structure.
+    """
 
     response = openai.chat.completions.create(
         model="gpt-4o",
         temperature=0.4,
         messages=[{"role": "user", "content": prompt}]
     )
-    
+
     return {"response": response.choices[0].message.content}
-    
+
+# --- FeedbackRequest model ---
+class FeedbackRequest(BaseModel):
+    tradeId: int
+    wasWin: bool
+
+
+# --- TradeFeedback database model ---
+class TradeFeedback(Base):
+    __tablename__ = "feedback"
+    id = Column(Integer, primary_key=True, index=True)
+    tradeId = Column(Integer, index=True)
+    wasWin = Column(Boolean)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+# Ensure feedback table is created
+Base.metadata.create_all(bind=engine)
+
+
+# --- Feedback endpoint ---
+@app.post("/feedback")
+async def receive_feedback(feedback: FeedbackRequest):
+    db = SessionLocal()
+    new_feedback = TradeFeedback(tradeId=feedback.tradeId, wasWin=feedback.wasWin)
+    db.add(new_feedback)
+    db.commit()
+    db.close()
+    return {"status": "success", "message": "Feedback recorded"}
