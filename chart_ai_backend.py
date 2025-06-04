@@ -167,6 +167,7 @@ def save_to_db(res: StrategyResult, symbol: str, user: str, super_t: bool, top: 
         )
     )
     db.commit()
+    print(f"✅ Trade saved for user: {user}, strategy: {res.strategy}")
     db.close()
 def generate_prompt(strategy: str, tradeStyle: str = "Intraday") -> str:
     strategy_prompts = {
@@ -280,9 +281,11 @@ async def analyze_chart(
 
     for strategy in strategies:
         try:
-            prompt = generate_prompt(strategy, tradeStyle)
-            if language != "en":
-                prompt = f"Translate the following prompt to {language.upper()} and then follow it:\n\n" + prompt
+            context_intro = (
+                f"Respond only in {language.upper()}. The user is analyzing a {assetType} chart using a {tradeStyle} strategy. "
+                f"Tailor the analysis to match the risk level: {riskTolerance}. The portfolio is approximately ${portfolioSize}.\n\n"
+            )
+            prompt = context_intro + generate_prompt(strategy, tradeStyle)
             response = openai.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.4,
