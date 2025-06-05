@@ -259,10 +259,20 @@ async def analyze_chart(
     assetType: str = Form("Forex"),
     language: str = Form("en"),
 ):
+    # Log incoming form field values
+    print("Received request with:")
+    print("Portfolio Size:", portfolioSize)
+    print("Risk:", riskTolerance)
+    print("Asset Type:", assetType)
+    print("Language:", language)
+    print("Chart Timeframe:", tradeStyle)
+
     image = Image.open(io.BytesIO(await file.read()))
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
     img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+    print("Image received and decoded successfully.")
 
     symbol_meta = detect_symbol_and_metadata(img_b64)
     fallback_symbol = re.sub(r'[\d\-]+', '', symbol_meta.get("symbol", "")).upper()
@@ -356,6 +366,7 @@ async def analyze_chart(
     if top_pick:
         save_to_db(top_pick, fallback_symbol or symbol_meta.get("symbol", ""), userId, super_trade, top_pick)
 
+    print("Returning response with", len(results), "strategy results.")
     return FullAnalysis(results=results, superTrade=super_trade, topPick=top_pick, conflictCommentary=conflict_commentary)
 
 
